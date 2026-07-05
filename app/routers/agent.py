@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.agents.graph import run_agent
+from app.graph.supervisor_graph import run_agent
 from app.schemas.agent import (
     ActionRecommendationRequest,
     ActionRecommendationResponse,

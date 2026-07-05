@@ -132,13 +132,22 @@ WAVEHOME_CORE_API_MOCK=true
 
 ```text
 app/
-  agents/        # LangGraph state, graph, node
-  clients/       # C++ 서버 API client
+  graph/         # Supervisor/Chat/Report/Action/Health LangGraph 정의
+  agents/        # Domain agent (Sleep/Posture/Observation/Lifestyle/Schedule/Device/Report)
+  tools/         # C++ 서버 API를 감싸는 도메인별 Tool 함수
+  state/         # 공유 AgentState
+  models/        # Insight/HealthSummary/ActionPlan 등 내부 pydantic 모델
+  services/      # LLM 클라이언트, 프롬프트 로더, Insight Synthesizer
+  prompts/       # 도메인별 LLM 프롬프트 템플릿
+  clients/       # C++ 서버 API 공용 transport (get/post, 재시도)
   routers/       # Agent API endpoint
   schemas/       # Request/response schema
   config.py      # 환경 변수 설정
   main.py        # FastAPI entrypoint
 docs/
+  agent_architecture.md
+  design.md
+  interface.md
   db.md
   schema.sql
 ```
@@ -157,6 +166,6 @@ POST /api/v1/agent/actions/recommend
 세부 요청/응답 스펙은 C++ 서버와의 연동 방식이 확정된 뒤 문서화합니다.
 
 ## TODO
-- LangGraph 기반 에이전트 플로우 추가
-- C++ 서버 API 클라이언트 추가
-- 채팅, 리포트, 권장 액션 중심의 에이전트 API로 재구성
+- C++ 서버 API가 준비되면 `app/tools/*_api.py`의 mock 분기를 실제 엔드포인트로 교체
+- 카메라/센서 관측 데이터 API가 생기면 `app/tools/observation_api.py`를 실제 연동으로 교체
+- Human-in-the-Loop, LangGraph Checkpoint/Memory, LangSmith 추적 등 `docs/agent_architecture.md` §15의 향후 발전 방향 검토

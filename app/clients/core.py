@@ -1,3 +1,4 @@
+import logging
 from typing import Any, Optional
 
 import httpx
@@ -5,80 +6,44 @@ import httpx
 from app.config import Settings, get_settings
 
 
+logger = logging.getLogger(__name__)
+
+
+class ToolError(Exception):
+    """Raised when a call to the C++ backend fails after retrying."""
+
+
 class CoreApiClient:
-    """Client for the C++ server that owns SQLite and device/schedule state."""
+    """Generic transport for the C++ server that owns SQLite and device/schedule state.
+
+    Domain-specific shape and mock fixtures live in app/tools/*_api.py; this
+    class only knows HTTP, retry, and logging (interface.md #13).
+    """
 
     def __init__(self, settings: Optional[Settings] = None) -> None:
         self.settings = settings or get_settings()
         self.base_url = self.settings.wavehome_core_api_base_url.rstrip("/")
         self.timeout = self.settings.wavehome_core_api_timeout_ms / 1000
 
-    async def get_context(
-        self,
-        *,
-        account_id: str,
-        task: str,
-        user_message: Optional[str] = None,
-        metadata: Optional[dict[str, Any]] = None,
-    ) -> dict[str, Any]:
-        if self.settings.wavehome_core_api_mock:
-            return self._mock_context(
-                account_id=account_id,
-                task=task,
-                user_message=user_message,
-            )
+    @property
+    def is_mock(self) -> bool:
+        return self.settings.wavehome_core_api_mock
 
-        payload = {
-            "accountId": account_id,
-            "task": task,
-            "userMessage": user_message,
-            "metadata": metadata or {},
-        }
-        async with httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout) as client:
-            response = await client.post("/api/v1/agent/context", json=payload)
-            response.raise_for_status()
-            return response.json()
+    async def get(self, path: str, params: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        return await self._request("GET", path, params=params)
 
-    async def request_action(self, action: dict[str, Any]) -> dict[str, Any]:
-        if self.settings.wavehome_core_api_mock:
-            return {"status": "mocked", "action": action}
+    async def post(self, path: str, json: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        return await self._request("POST", path, json=json)
 
-        async with httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout) as client:
-            response = await client.post("/api/v1/agent/actions", json=action)
-            response.raise_for_status()
-            return response.json()
-
-    def _mock_context(
-        self,
-        *,
-        account_id: str,
-        task: str,
-        user_message: Optional[str],
-    ) -> dict[str, Any]:
-        return {
-            "accountId": account_id,
-            "task": task,
-            "userMessage": user_message,
-            "sleep": {
-                "lastNight": {
-                    "durationMinutes": 415,
-                    "quality": "fair",
-                    "wakeUps": 3,
-                },
-                "weeklyAverageMinutes": 402,
-            },
-            "posture": {
-                "today": {
-                    "goodPostureRatio": 0.68,
-                    "longestBadPostureMinutes": 37,
-                },
-                "weeklyTrend": "slightly_worse",
-            },
-            "devices": [
-                {"id": "light_living_room", "name": "거실 조명", "state": "on"},
-                {"id": "ac_bedroom", "name": "침실 에어컨", "state": "24C"},
-            ],
-            "schedule": [
-                {"id": "task_exercise_tonight", "title": "운동", "time": "오늘 21:00"},
-            ],
-        }
+    async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        last_error: Optional[Exception] = None
+        for attempt in (1, 2):
+            try:
+                async with httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout) as client:
+                    response = await client.request(method, path, **kwargs)
+                    response.raise_for_status()
+                    return response.json()
+            except httpx.HTTPError as exc:
+                last_error = exc
+                logger.warning("Core API %s %s failed (attempt %d/2)", method, path, attempt, exc_info=True)
+        raise ToolError(f"{method} {path} failed") from last_error
