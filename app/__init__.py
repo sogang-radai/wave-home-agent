@@ -1,1 +1,1 @@
-
+"""WaveHome Agent Server package."""

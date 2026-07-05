@@ -1,11 +1,31 @@
-from __future__ import annotations
+from functools import lru_cache
 
-import os
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from dotenv import load_dotenv
 
-load_dotenv()
+class Settings(BaseSettings):
+    app_name: str = "WaveHome Agent Server"
+    app_env: str = "local"
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
-GEMINI_TIMEOUT_MS = int(os.getenv("GEMINI_TIMEOUT_MS", "20000"))
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-3.1-flash-lite"
+    gemini_timeout_ms: int = 20000
+
+    wavehome_core_api_base_url: str = "http://127.0.0.1:9000"
+    wavehome_core_api_timeout_ms: int = 5000
+    wavehome_core_api_mock: bool = Field(
+        default=True,
+        description="Use placeholder data until the C++ server API is ready.",
+    )
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
