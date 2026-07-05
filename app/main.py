@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import SessionLocal, create_db_and_tables
 from app.errors import register_error_handlers
-from app.routers import accounts, chat, session
+from app.routers import accounts, chat, notifications, push, session
 from app.seed import seed_initial_data
 
 
@@ -38,6 +38,8 @@ api_v1 = APIRouter(prefix="/api/v1")
 api_v1.include_router(session.router)
 api_v1.include_router(accounts.router)
 api_v1.include_router(chat.router)
+api_v1.include_router(push.router)
+api_v1.include_router(notifications.router)
 app.include_router(api_v1)
 
 

@@ -420,6 +420,31 @@ SET read = true
 WHERE account_id = :account_id;
 ```
 
+#### 6.2 `push_subscription`
+
+Firebase JS SDK의 `getToken()`이 발급한 FCM 등록 토큰을 저장한다. `notification`이 생성될 때
+해당 계정의 모든 토큰으로 FCM 푸시를 함께 발송한다 (`app/push_service.py::notify_account`,
+`firebase_admin.messaging` 사용).
+
+| 필드명 | 타입 | NULL | 키 | 설명 |
+|---|---|---:|---|---|
+| `id` | `VARCHAR(30)` | N | PK | `psh_01J2ZQ...` |
+| `account_id` | `VARCHAR(30)` | N | FK → `account.id` | 구독 계정 |
+| `token` | `VARCHAR(500)` | N | UNIQUE | FCM 등록 토큰 |
+| `user_agent` | `VARCHAR(255)` | Y |  | 구독 생성 시 User-Agent |
+| `created_at` | `DATETIME` | N |  | 생성 시각 |
+
+###### 권장 인덱스
+
+| 인덱스 | 용도 |
+|---|---|
+| `idx_push_subscription_account_id(account_id)` | 계정별 구독 목록 조회 |
+
+###### 구독 정리
+
+발송 시 `firebase_admin.messaging.UnregisteredError`가 발생하면(알림 권한 철회, 토큰 만료 등)
+해당 행을 즉시 삭제한다.
+
 ---
 
 ## 7. 수면 트래킹
@@ -919,6 +944,7 @@ account 1───1 posture_alert_setting
 account 1───1 posture_current_status
 account 1───1 dashboard_control_mode
 account 1───N notification
+account 1───N push_subscription
 account 1───N insight
 account 1───N weekly_plan_task
 account 1───N conversation

@@ -152,6 +152,19 @@ CREATE TABLE notification (
 
 CREATE INDEX idx_notification_account_created ON notification (account_id, created_at);
 
+CREATE TABLE push_subscription (
+    id VARCHAR(30) NOT NULL,
+    account_id VARCHAR(30) NOT NULL,
+    token VARCHAR(500) NOT NULL,
+    user_agent VARCHAR(255),
+    created_at DATETIME NOT NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT uq_push_subscription_token UNIQUE (token),
+    FOREIGN KEY(account_id) REFERENCES account (id)
+);
+
+CREATE INDEX idx_push_subscription_account_id ON push_subscription (account_id);
+
 CREATE TABLE posture_alert_setting (
     account_id VARCHAR(30) NOT NULL,
     turtle_neck BOOLEAN NOT NULL,

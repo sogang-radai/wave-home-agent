@@ -278,6 +278,23 @@ class Notification(Base):
     read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
+class PushSubscription(Base):
+    """FCM 등록 토큰(firebase JS SDK의 getToken() 결과) 저장. 순수 Web Push 구독(endpoint/keys) 대신
+    Firebase Cloud Messaging 토큰 기준으로 관리한다."""
+
+    __tablename__ = "push_subscription"
+    __table_args__ = (
+        UniqueConstraint("token", name="uq_push_subscription_token"),
+        Index("idx_push_subscription_account_id", "account_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(30), primary_key=True)
+    account_id: Mapped[str] = mapped_column(String(30), ForeignKey("account.id"), nullable=False)
+    token: Mapped[str] = mapped_column(String(500), nullable=False)
+    user_agent: Mapped[Optional[str]] = mapped_column(String(255))
+    created_at: Mapped[DateTime] = mapped_column(DateTime, nullable=False)
+
+
 class SleepDailyReport(Base):
     __tablename__ = "sleep_daily_report"
     __table_args__ = (
