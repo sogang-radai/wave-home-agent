@@ -641,7 +641,7 @@ curl -X POST http://127.0.0.1:8501/reports/v1/sleep/weekly \
 
 - DB 스키마 설계 남은 것: `device_control`, `posture_*`, `event` 테이블을 허용 목록에 추가 요청(아래 항목과 연결).
 - RAG 검색을 tool로 추가
-- **백엔드 팀에 확인/요청 필요(teammate_api.md와의 차이)**:
+- **백엔드 팀에 확인/요청 필요**:
   1. 리포트 생성 API를 백엔드 API 명세서의 `/sleep/v1`·`/power/v1` 비동기 job 패턴이 아니라 본 문서 §1.2(`POST /reports/v1/{domain}/{period}`, 동기 응답, `summary`/`highlights`/`recommendations` 구조)로 구현해달라고 요청. `power` 도메인도 이 패턴에 포함할지 확인.
   2. `posture` 도메인 스키마 이관(`db_past.md` → `db_updated.md`, 제안안은 `db_updated.md` "자세 트래킹" 절 참고) 및 §1.2 `posture` 리포트 구현 요청.
   3. `POST /internal/v1/devices/{deviceId}/controls/{controlId}` 등 §2.2~2.5(기기 제어·일정) 구현 — 백엔드 API 명세서에서 "에이전트 담당이 먼저 정리"로 남겨둔 부분이므로 본 문서 §2.2~2.5를 그대로 전달.

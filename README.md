@@ -16,18 +16,18 @@ WaveHome의 에이전트 서버입니다.
 
 채팅에서는 C++ 서버 API를 통해 수집 및 저장된 데이터를 조회한 뒤, 다음과 같은 응답을 생성합니다.
 
-- 수면 데이터 기반 건강 상담
-- 자세 데이터 기반 피드백
-- 카메라 및 센서 관측 데이터 기반 생활 인사이트
-- 사용자의 현재 상태와 최근 이력에 맞춘 권장 행동
-- 일정 변경 요청 해석 및 실행 요청
-- 가전 제어 요청 해석 및 실행 요청
+- 수면 데이터 기반 건강 상담 — 구현됨(`query_db`의 `sleep_session`/`sleep_stat`/`sleep_report` + `rag_search`의 `sleep_report`/`sleep_stat`)
+- 사용자의 현재 상태와 최근 이력에 맞춘 권장 행동 — 구현됨(위 수면 데이터 기반. 자세/생활 패턴 데이터는 아직 없어 그만큼은 반영 못 함)
+- 일정 변경 요청 해석 및 실행 요청 — 구현됨(`get_routine_tasks`/`update_routine_task`)
+- 가전 제어 요청 해석 및 실행 요청 — 구현됨(`list_devices`/`control_device`)
+- 자세 데이터 기반 피드백, 카메라/센서 관측 데이터 기반 생활 인사이트 — **아직 미구현**. `app/tools/db_query.py`(허용 테이블)와 `app/tools/rag_search.py`(허용 컬렉션) 어디에도 자세/관측 데이터 소스가 없어서, LLM이 tool을 시도해도 항상 빈 결과만 받고 "데이터가 없다"고 답합니다(백엔드에 posture 스키마·카메라 이벤트 테이블이 아직 없기 때문 — TODO 참고)
 
-예시 요청:
+
+예시 요청(위 두 항목은 아직 실제 데이터로 답하지 못함):
 
 ```text
 어젯밤 수면 어땠어?
-요즘 자세가 안 좋은 편이야?
+요즘 자세가 안 좋은 편이야?      # 아직 미구현 — "데이터 없음"으로만 응답
 밤 11시에 불 소등해줘.
 에어컨 온도 조금 낮춰줘.
 오늘 밤 운동 일정을 내일로 옮겨줘.
@@ -125,7 +125,8 @@ GEMINI_API_KEY=
 GEMINI_MODEL=gemini-3.1-flash-lite
 GEMINI_TIMEOUT_MS=20000
 
-# sleep_agent/posture_agent/observation_agent/lifestyle_agent(app/tools/{sleep,posture,observation,schedule}_api.py)가 사용
+# sleep_agent/posture_agent/lifestyle_agent(app/tools/{sleep,posture,schedule}_api.py)가 사용.
+# observation_api.py는 카메라 이벤트 백엔드 테이블이 아직 없어 이 값을 읽지 않고 항상 mock만 반환합니다.
 WAVEHOME_CORE_API_BASE_URL=http://127.0.0.1:9000
 WAVEHOME_CORE_API_TIMEOUT_MS=5000
 WAVEHOME_CORE_API_MOCK=true
@@ -196,6 +197,7 @@ docs/
 ```
 
 ## API 구현
+postman documentation: https://documenter.getpostman.com/view/42800287/2sBY4JvhRh
 
 ```http
 POST /chat/v1/turns                       # §1.1 — stream(기본 true, SSE) / stream:false(단일 JSON)
@@ -210,7 +212,7 @@ POST /llm/v1/embeddings                   # §1.3 — OpenAI 호환, 스트리�
 - §2 아웃바운드 tool(`db.query`/`devices`/`routine-tasks`/`rag.search`)은 백엔드 `/internal/v1/*`가 아직 없어 전부 **mock**입니다(`app/tools/db_query.py` 등). 실제 연동 시 `WAVEHOME_AGENT_INTERNAL_BASE_URL`만 바꾸면 됩니다.
 - `/llm/v1/*`는 팀에서 공유한 Ollama 서버(OpenAI 호환 `/v1/*`)로의 얇은 프록시입니다(`app/clients/ollama.py`). `GET /models`는 Ollama의 `/api/tags`(`capabilities` 필드로 chat/embedding 구분)를 우리 shape로 매핑하고, `chat/completions`/`embeddings`는 대부분 그대로 전달합니다. 에러는 상태코드 기준으로 매핑합니다: 404→`MODEL_NOT_FOUND`, timeout→`LLM_TIMEOUT`, 그 외→`LLM_PROVIDER_ERROR` (스트리밍 중 에러는 `data: {"error":{...}}\n\n` 이벤트로).
 
-세부 요청/응답 스펙과 C++ 서버 연동 API 계약은 `docs/api.md`를 참고합니다. Postman 컬렉션은 `docs/wavehome-agent.postman_collection.json`에 있습니다.
+세부 요청/응답 스펙과 C++ 서버 연동 API 계약은 `docs/api.md`를 참고합니다.
 
 ## TODO
 - C++ 서버의 `/internal/v1/*`가 준비되면 `app/tools/db_query.py`/`rag_search.py`/`devices_internal.py`/`routine_tasks_internal.py`의 mock 분기를 실제 호출로 교체

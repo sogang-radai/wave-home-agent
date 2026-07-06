@@ -369,7 +369,7 @@ CREATE VIRTUAL TABLE vec_power_report USING vec0 (
 ---------------------------------------------------------------------------------------------------
 
 ### 자세 (제안, 미확정)
-- `db_past.md`(옛 계정 스코프 설계)엔 `posture_daily_report` 등 자세 테이블이 있었으나, 새 스키마(본 문서)로 이관되지 않아 현재 백엔드에 자세 저장 구조가 없다. `teammate_api.md`의 `DbTable` 목록에도 posture 계열이 없다.
+- `db_past.md`(옛 계정 스코프 설계)엔 `posture_daily_report` 등 자세 테이블이 있었으나, 새 스키마(본 문서)로 이관되지 않아 현재 백엔드에 자세 저장 구조가 없다. `DbTable` 목록에도 posture 계열이 없다.
 - 아래는 수면 통계(`sleep_session`/`sleep_stat`/`sleep_report`)와 동일한 3분할 패턴(일간 원본/시간대별 세분/리포트)으로 맞춘 제안 스키마다. 백엔드 확정 전까지는 초안이다.
 
 ```sql
@@ -422,7 +422,7 @@ CREATE VIRTUAL TABLE vec_posture_report USING vec0 (
 );
 ```
 
-이 스키마가 확정되면 `teammate_api.md`의 `DbTable` enum과 agent `api.md` §1.2/§2.1/§2.6(RAG 컬렉션)에 `posture_daily_report`/`posture_hourly_stat`/`posture_report`/`vec_posture_report`를 추가해야 한다.
+이 스키마가 확정되면 `DbTable` enum과 agent `api.md` §1.2/§2.1/§2.6(RAG 컬렉션)에 `posture_daily_report`/`posture_hourly_stat`/`posture_report`/`vec_posture_report`를 추가해야 한다.
 
 ---------------------------------------------------------------------------------------------------
 
