@@ -2,7 +2,7 @@
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.clients.core import CoreApiClient
 from app.config import get_settings
@@ -12,11 +12,13 @@ RagCollection = Literal["sleep_report", "sleep_stat", "power_report"]
 
 
 class RagTarget(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     collection: RagCollection
     userId: Optional[int] = None
     deviceId: Optional[int] = None
     period: Optional[str] = None
-    from_: Optional[str] = None
+    from_: Optional[str] = Field(None, alias="from")
     to: Optional[str] = None
     topK: int = 3
 
@@ -51,7 +53,7 @@ async def rag_search(query: str, targets: list[RagTarget]) -> list[RagResult]:
 
     payload: dict[str, Any] = {
         "query": query,
-        "targets": [target.model_dump(exclude_none=True) for target in targets],
+        "targets": [target.model_dump(exclude_none=True, by_alias=True) for target in targets],
     }
     response = await client.post("/rag/search", json=payload)
     return [RagResult.model_validate(r) for r in response.get("results", [])]

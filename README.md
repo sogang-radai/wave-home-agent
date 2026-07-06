@@ -8,7 +8,7 @@ WaveHome의 에이전트 서버입니다.
 
 이 서버의 책임은 LangGraph 기반 에이전트 플로우를 실행해 채팅 응답, 건강 인사이트, 리포트, 권장 액션, 가전 제어 의도를 생성하는 것입니다.
 
-> **API 계약 현황**: `docs/api.md`가 백엔드-에이전트 계약의 확정안입니다. 현재 서버는 두 API 표면을 동시에 제공합니다 — 초기 설계(`docs/agent_architecture.md`)를 따르는 레거시 `/api/v1/agent/*` 라우트(키워드 기반 라우팅, 비스트리밍)와, `docs/api.md`를 그대로 구현한 `/chat/v1/turns`·`/reports/v1/{domain}/{period}`(LLM이 직접 tool 호출 여부를 판단하는 ReAct 루프, SSE 스트리밍)입니다. 레거시 쪽은 당장 정리하지 않고 병행 운영 중이며, 자세한 API별 구현 여부는 아래 "API 구현" 절을 참고합니다.
+> **API 계약 현황**: `docs/api.md`가 백엔드-에이전트 계약의 확정안이며, 이 서버는 그 계약(`/chat/v1/turns`, `/reports/v1/{domain}/{period}`)을 그대로 구현합니다 — LLM이 직접 tool 호출 여부를 판단하는 ReAct 루프, SSE 스트리밍. 초기 설계(`docs/agent_architecture.md`, 키워드 기반 라우팅 + 고정 그래프)를 따르던 레거시 `/api/v1/agent/*` 라우트와 그 그래프/agent들은 정리되었습니다. 다만 `sleep_agent`/`posture_agent`/`observation_agent`/`lifestyle_agent`와 이들이 쓰는 mock tool·프롬프트는 향후 ReAct 루프용 "도메인 insight tool"로 승격할 가치가 있어 코드는 남겨뒀고, 현재는 어떤 라우트에도 연결되어 있지 않습니다.
 
 ### 1. 채팅
 
@@ -125,7 +125,7 @@ GEMINI_API_KEY=
 GEMINI_MODEL=gemini-3.1-flash-lite
 GEMINI_TIMEOUT_MS=20000
 
-# 레거시 /api/v1/agent/* 라우트가 사용
+# sleep_agent/posture_agent/observation_agent/lifestyle_agent(app/tools/{sleep,posture,observation,schedule}_api.py)가 사용
 WAVEHOME_CORE_API_BASE_URL=http://127.0.0.1:9000
 WAVEHOME_CORE_API_TIMEOUT_MS=5000
 WAVEHOME_CORE_API_MOCK=true
@@ -143,41 +143,42 @@ WAVEHOME_AGENT_INTERNAL_BASE_URL=http://127.0.0.1:8500/internal/v1
 ```text
 app/
   graph/
-    supervisor_graph.py / chat_graph.py / report_graph.py / action_graph.py / health_graph.py
-                       # 레거시: 키워드 기반 라우팅 + 고정 fan-out (docs/agent_architecture.md)
-    tool_loop.py       # 신규: LLM이 tool 호출 여부를 스스로 판단하는 2노드 ReAct 루프(공용)
-    turn_graph.py      # 신규: /chat/v1/turns용 tool_loop 인스턴스 + 시스템 프롬프트
-    tools.py           # 신규: LangChain @tool 래퍼 (build_tools(user_id))
-    chat_runtime.py    # 신규: SSE/비스트리밍 드라이버 (astream_events -> tool.start/tool.end/message.delta)
-    report_turn_graph.py  # 신규: /reports/v1/{domain}/{period}용 그래프 (metrics/raw 인라인 소비)
-  agents/          # 레거시: Domain agent (Sleep/Posture/Observation/Lifestyle/Schedule/Device/Report)
+    tool_loop.py       # LLM이 tool 호출 여부를 스스로 판단하는 2노드 ReAct 루프(공용)
+    turn_graph.py      # /chat/v1/turns용 tool_loop 인스턴스 + 시스템 프롬프트
+    tools.py           # LangChain @tool 래퍼 (build_tools(user_id))
+    chat_runtime.py    # SSE/비스트리밍 드라이버 (astream_events -> tool.start/tool.end/message.delta)
+    report_turn_graph.py  # /reports/v1/{domain}/{period}용 그래프 (metrics/raw 인라인 소비)
+  agents/
+    sleep_agent.py / posture_agent.py / observation_agent.py / lifestyle_agent.py
+                       # 도메인별 데이터 조회 + insight 생성 로직. 현재 어떤 라우트/그래프에도
+                       # 연결돼 있지 않음 — 향후 ReAct 루프의 "도메인 insight tool"로 승격 예정
   tools/
-    *_api.py                    # 레거시: 옛 /api/v1/agent/* 계약 기준 mock/실call
-    db_query.py                 # 신규: docs/api.md §2.1 POST /internal/v1/db/query mock
-    rag_search.py                # 신규: §2.6 POST /internal/v1/rag/search mock
-    devices_internal.py          # 신규: §2.2/§2.3 devices/controls mock
-    routine_tasks_internal.py    # 신규: §2.4/§2.5 routine-tasks mock
+    sleep_api.py / posture_api.py / observation_api.py / schedule_api.py
+                       # 위 4개 agent가 쓰는 mock 데이터 소스 (옛 /api/v1/agent/* 계약 기준 shape)
+    db_query.py                 # docs/api.md §2.1 POST /internal/v1/db/query mock
+    rag_search.py                # §2.6 POST /internal/v1/rag/search mock
+    devices_internal.py          # §2.2/§2.3 devices/controls mock
+    routine_tasks_internal.py    # §2.4/§2.5 routine-tasks mock
   state/
-    agent_state.py       # 레거시 그래프들의 공유 AgentState
-    chat_state.py         # 신규: ChatTurnState (messages/rounds 등 ReAct 루프 상태)
-    report_turn_state.py  # 신규: ReportTurnState
-  models/        # 레거시: Insight/HealthSummary/ActionPlan 등 내부 pydantic 모델
-  services/      # LLM 클라이언트, 프롬프트 로더, Insight Synthesizer(레거시)
-  prompts/       # 도메인별 LLM 프롬프트 템플릿
+    agent_state.py       # 위 4개 agent가 쓰는 공유 상태 타입
+    chat_state.py         # ChatTurnState (messages/rounds 등 ReAct 루프 상태)
+    report_turn_state.py  # ReportTurnState
+  models/
+    insight.py     # 위 4개 agent가 만드는 Insight 모델
+  services/      # LLM 클라이언트, 프롬프트 로더
+  prompts/       # 도메인별 LLM 프롬프트 템플릿 (sleep/posture/observation/lifestyle/report)
   clients/       # C++ 서버 API 공용 transport (get/post, 재시도, base_url override)
   routers/
-    agent.py           # 레거시 /api/v1/agent/* 라우트
-    chat.py            # 신규 POST /chat/v1/turns
-    reports_turn.py    # 신규 POST /reports/v1/{domain}/{period}
+    chat.py            # POST /chat/v1/turns
+    reports_turn.py    # POST /reports/v1/{domain}/{period}
   schemas/
-    agent.py           # 레거시 request/response schema
-    chat.py / report_turn.py / errors.py  # 신규 schema (docs/api.md 계약과 1:1)
-  errors.py      # 신규: AgentApiError + api.md §4 에러 envelope 핸들러
+    chat.py / report_turn.py / errors.py  # docs/api.md 계약과 1:1 대응하는 schema
+  errors.py      # AgentApiError + api.md §4 에러 envelope 핸들러
   config.py      # 환경 변수 설정
-  main.py        # FastAPI entrypoint (레거시 + 신규 라우터 동시 mount)
+  main.py        # FastAPI entrypoint
 docs/
   api.md                 # 확정 계약 (이 문서 기준으로 구현)
-  agent_architecture.md  # 레거시 아키텍처 설계(참고용)
+  agent_architecture.md  # 이전 아키텍처 설계(참고용, 코드는 정리됨)
   design.md
   interface.md
   db_updated.md / db_past.md
@@ -185,8 +186,6 @@ docs/
 ```
 
 ## API 구현
-
-### docs/api.md 계약 구현 (현재 기준, 신규)
 
 ```http
 POST /chat/v1/turns                       # §1.1 — stream(기본 true, SSE) / stream:false(단일 JSON)
@@ -198,25 +197,12 @@ POST /reports/v1/{domain}/{period}        # §1.2 — domain: sleep|posture, per
 - §2 아웃바운드 tool(`db.query`/`devices`/`routine-tasks`/`rag.search`)은 백엔드 `/internal/v1/*`가 아직 없어 전부 **mock**입니다(`app/tools/db_query.py` 등). 실제 연동 시 `WAVEHOME_AGENT_INTERNAL_BASE_URL`만 바꾸면 됩니다.
 - §1.3 `/llm/v1/*` OpenAI 호환 프록시는 **아직 미구현**입니다.
 
-### 레거시 구현 (`docs/agent_architecture.md` 기준, 병행 운영 중)
-
-```http
-POST /api/v1/agent/chat
-POST /api/v1/agent/reports/sleep/weekly
-POST /api/v1/agent/reports/sleep/nightly
-POST /api/v1/agent/reports/posture/weekly
-POST /api/v1/agent/reports/posture/daily
-POST /api/v1/agent/actions/recommend
-```
-
-키워드 매칭 기반 의도 분류 + 고정 그래프 라우팅을 사용하며, `docs/api.md`에는 없는 계약(`account_id` 문자열 사용, 비스트리밍 전용, `/actions/recommend` 등)입니다. 정리(삭제) 여부는 아직 결정되지 않아 당장은 그대로 유지합니다.
-
-세부 요청/응답 스펙과 C++ 서버 연동 API 계약은 `docs/api.md`를 참고합니다. Postman으로 두 API 표면을 한 번에 테스트할 수 있는 컬렉션은 `docs/wavehome-agent.postman_collection.json`에 있습니다.
+세부 요청/응답 스펙과 C++ 서버 연동 API 계약은 `docs/api.md`를 참고합니다. Postman 컬렉션은 `docs/wavehome-agent.postman_collection.json`에 있습니다.
 
 ## TODO
 - C++ 서버의 `/internal/v1/*`가 준비되면 `app/tools/db_query.py`/`rag_search.py`/`devices_internal.py`/`routine_tasks_internal.py`의 mock 분기를 실제 호출로 교체
 - `docs/api.md` §1.3 `/llm/v1/*` OpenAI 호환 프록시 구현
-- 레거시 `/api/v1/agent/*` 라우트·그래프(`supervisor_graph`/`action_graph`/`health_graph`/도메인 agent들) 정리 여부 결정 및 실행
-- C++ 서버 API가 준비되면 레거시 `app/tools/*_api.py`의 mock 분기도 실제 엔드포인트로 교체
+- `sleep_agent`/`posture_agent`/`observation_agent`/`lifestyle_agent`를 `/chat/v1/turns` ReAct 루프의 tool(예: `get_sleep_insight`)로 승격 — 단, 지금은 옛 mock(`sleep_api.py` 등)을 쓰고 있어 새 `db_query` mock으로 데이터 소스를 먼저 갈아끼워야 하고, `invoke_structured` LLM 호출을 그대로 tool 안에 둘지(문장 품질↑, 턴당 LLM 호출↑) 각 agent의 `_rule_based_insight` 규칙 기반 로직만 쓸지(호출 비용 없음) 결정 필요
+- C++ 서버 API가 준비되면 위 4개 agent가 쓰는 `app/tools/{sleep,posture,observation,schedule}_api.py`의 mock 분기도 실제 엔드포인트로 교체
 - 카메라/센서 관측 데이터 API가 생기면 `app/tools/observation_api.py`를 실제 연동으로 교체
 - Human-in-the-Loop, LangGraph Checkpoint/Memory, LangSmith 추적 등 `docs/agent_architecture.md` §15의 향후 발전 방향 검토

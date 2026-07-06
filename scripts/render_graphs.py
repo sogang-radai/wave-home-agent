@@ -10,27 +10,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.graph import (
-    action_graph,
-    chat_graph,
-    health_graph,
-    report_graph,
-    report_turn_graph,
-    supervisor_graph,
-    turn_graph,
-)
+from app.graph import report_turn_graph, turn_graph
 from app.graph.tools import build_tools
 
 OUT_DIR = Path(__file__).resolve().parent.parent / "docs" / "graphs"
 
 GRAPH_BUILDERS = {
-    # legacy (docs/agent_architecture.md)
-    "supervisor_graph": supervisor_graph.build,
-    "chat_graph": chat_graph.build,
-    "action_graph": action_graph.build,
-    "report_graph": report_graph.build,
-    "health_graph": health_graph.build,
-    # current (docs/api.md)
     "turn_graph": lambda: turn_graph.build_chat_graph(build_tools(user_id=0)),
     "report_turn_graph": report_turn_graph.build,
 }
