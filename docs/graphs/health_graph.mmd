@@ -13,15 +13,15 @@ graph TD;
 	insight_synthesizer(insight_synthesizer)
 	__end__([<p>__end__</p>]):::last
 	__start__ --> task_planning;
-	insight_synthesizer --> __end__;
-	task_planning -.-> sleep_agent;
-	sleep_agent --> insight_synthesizer;
-	task_planning -.-> posture_agent;
-	posture_agent --> insight_synthesizer;
-	task_planning -.-> observation_agent;
-	observation_agent --> insight_synthesizer;
-	task_planning -.-> lifestyle_agent;
 	lifestyle_agent --> insight_synthesizer;
+	observation_agent --> insight_synthesizer;
+	posture_agent --> insight_synthesizer;
+	sleep_agent --> insight_synthesizer;
+	task_planning -.-> lifestyle_agent;
+	task_planning -.-> observation_agent;
+	task_planning -.-> posture_agent;
+	task_planning -.-> sleep_agent;
+	insight_synthesizer --> __end__;
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0
 	classDef last fill:#bfb6fc

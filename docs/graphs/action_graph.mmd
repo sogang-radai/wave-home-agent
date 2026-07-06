@@ -16,23 +16,17 @@ graph TD;
 	generate_response(generate_response)
 	__end__([<p>__end__</p>]):::last
 	__start__ --> intent_analysis;
+	action_planning -.-> device_agent;
+	action_planning -.-> schedule_agent;
+	action_planning -.-> set_recommend_context;
 	device_agent --> verify_result;
-	generate_response --> __end__;
 	health_analysis --> recommend_finalize;
 	intent_analysis --> action_planning;
 	recommend_finalize --> verify_result;
 	schedule_agent --> verify_result;
 	set_recommend_context --> health_analysis;
 	verify_result --> generate_response;
-	action_planning -.-> intent_analysis;
-	action_planning -.-> device_agent;
-	action_planning -.-> schedule_agent;
-	action_planning -.-> set_recommend_context;
-	action_planning -.-> health_analysis;
-	action_planning -.-> recommend_finalize;
-	action_planning -.-> verify_result;
-	action_planning -.-> generate_response;
-	action_planning -.-> __end__;
+	generate_response --> __end__;
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0
 	classDef last fill:#bfb6fc

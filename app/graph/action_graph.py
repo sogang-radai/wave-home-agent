@@ -100,7 +100,17 @@ def build():
 
     graph.set_entry_point("intent_analysis")
     graph.add_edge("intent_analysis", "action_planning")
-    graph.add_conditional_edges("action_planning", route_by_intent)
+    # Explicit path_map so draw_mermaid() can resolve all three branches
+    # instead of leaving them disconnected in the diagram.
+    graph.add_conditional_edges(
+        "action_planning",
+        route_by_intent,
+        {
+            "device_agent": "device_agent",
+            "schedule_agent": "schedule_agent",
+            "set_recommend_context": "set_recommend_context",
+        },
+    )
     graph.add_edge("device_agent", "verify_result")
     graph.add_edge("schedule_agent", "verify_result")
     graph.add_edge("set_recommend_context", "health_analysis")

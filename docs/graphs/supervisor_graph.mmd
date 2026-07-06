@@ -12,15 +12,13 @@ graph TD;
 	action_graph(action_graph)
 	__end__([<p>__end__</p>]):::last
 	__start__ --> load_user_context;
-	action_graph --> __end__;
-	chat_graph --> __end__;
-	load_user_context --> intent_classification;
-	report_graph --> __end__;
-	intent_classification -.-> load_user_context;
+	intent_classification -.-> action_graph;
 	intent_classification -.-> chat_graph;
 	intent_classification -.-> report_graph;
-	intent_classification -.-> action_graph;
-	intent_classification -.-> __end__;
+	load_user_context --> intent_classification;
+	action_graph --> __end__;
+	chat_graph --> __end__;
+	report_graph --> __end__;
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0
 	classDef last fill:#bfb6fc

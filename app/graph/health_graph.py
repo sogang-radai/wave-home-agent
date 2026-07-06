@@ -43,8 +43,15 @@ def build():
     graph.add_node("insight_synthesizer", insight_synthesizer)
 
     graph.set_entry_point("task_planning")
-    # path returns a *list* of node names -> true parallel fan-out; `then`
-    # names the join node that runs once all selected agents finish.
-    graph.add_conditional_edges("task_planning", select_domain_agents, then="insight_synthesizer")
+    # path returns a *list* of node names -> true parallel fan-out. langgraph
+    # >=1.0 dropped add_conditional_edges(..., then=...), so the join edges
+    # are added explicitly instead (every domain node always leads to the
+    # synthesizer regardless of which subset ran). The explicit path_map
+    # (mirroring _DOMAIN_NODES) also lets draw_mermaid() resolve the fan-out
+    # instead of leaving it disconnected in the diagram.
+    domain_path_map = {node: node for node in _DOMAIN_NODES.values()}
+    graph.add_conditional_edges("task_planning", select_domain_agents, domain_path_map)
+    for node in ("sleep_agent", "posture_agent", "observation_agent", "lifestyle_agent"):
+        graph.add_edge(node, "insight_synthesizer")
     graph.add_edge("insight_synthesizer", END)
     return graph.compile()

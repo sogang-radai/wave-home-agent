@@ -104,7 +104,13 @@ def build():
 
     graph.set_entry_point("normalize_request")
     graph.add_edge("normalize_request", "need_context")
-    graph.add_conditional_edges("need_context", route_need_context)
+    # Explicit path_map so draw_mermaid() can resolve both branches instead of
+    # leaving health_analysis/generate_response disconnected in the diagram.
+    graph.add_conditional_edges(
+        "need_context",
+        route_need_context,
+        {"health_analysis": "health_analysis", "generate_response": "generate_response"},
+    )
     graph.add_edge("health_analysis", "generate_response")
     graph.add_edge("generate_response", "validate_response")
     graph.add_edge("validate_response", END)

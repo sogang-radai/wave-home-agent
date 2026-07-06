@@ -51,7 +51,14 @@ def build():
 
     graph.set_entry_point("load_user_context")
     graph.add_edge("load_user_context", "intent_classification")
-    graph.add_conditional_edges("intent_classification", route_graph)
+    # Explicit path_map (not just the bare function) so draw_mermaid() can
+    # resolve the branches instead of leaving chat_graph/report_graph/
+    # action_graph as disconnected nodes in docs/graphs/supervisor_graph.png.
+    graph.add_conditional_edges(
+        "intent_classification",
+        route_graph,
+        {"chat_graph": "chat_graph", "report_graph": "report_graph", "action_graph": "action_graph"},
+    )
     for node in ("chat_graph", "report_graph", "action_graph"):
         graph.add_edge(node, END)
     return graph.compile()

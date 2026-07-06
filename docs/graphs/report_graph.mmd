@@ -16,13 +16,13 @@ graph TD;
 	__end__([<p>__end__</p>]):::last
 	__start__ --> report_type;
 	collect_data --> sleep_summary;
-	generate_json --> __end__;
 	observation_summary --> trend_analysis;
 	posture_summary --> observation_summary;
 	recommendation --> generate_json;
 	report_type --> collect_data;
 	sleep_summary --> posture_summary;
 	trend_analysis --> recommendation;
+	generate_json --> __end__;
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0
 	classDef last fill:#bfb6fc
