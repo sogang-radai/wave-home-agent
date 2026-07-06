@@ -19,6 +19,11 @@ class Settings(BaseSettings):
         description="Use placeholder data until the C++ server API is ready.",
     )
 
+    # docs/api.md §2's outbound tools (db.query, devices, routine-tasks, rag.search) target the
+    # C++ backend's /internal/v1/* namespace, distinct from the legacy tools above which predate
+    # that contract. Kept separate so upgrading one doesn't move the other's base URL.
+    wavehome_agent_internal_base_url: str = "http://127.0.0.1:8500/internal/v1"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

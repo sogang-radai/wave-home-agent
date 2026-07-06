@@ -20,9 +20,9 @@ class CoreApiClient:
     class only knows HTTP, retry, and logging (interface.md #13).
     """
 
-    def __init__(self, settings: Optional[Settings] = None) -> None:
+    def __init__(self, settings: Optional[Settings] = None, *, base_url: Optional[str] = None) -> None:
         self.settings = settings or get_settings()
-        self.base_url = self.settings.wavehome_core_api_base_url.rstrip("/")
+        self.base_url = (base_url or self.settings.wavehome_core_api_base_url).rstrip("/")
         self.timeout = self.settings.wavehome_core_api_timeout_ms / 1000
 
     @property

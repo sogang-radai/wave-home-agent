@@ -1,0 +1,173 @@
+{
+  "info": {
+    "name": "WaveHome Agent Server",
+    "description": "docs/api.md 기준 신규 API(/chat/v1/turns, /reports/v1/{domain}/{period})와 레거시 /api/v1/agent/* 라우트를 함께 테스트하는 컬렉션. baseUrl 변수는 uvicorn을 --port 8501로 띄웠다고 가정합니다.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://127.0.0.1:8501", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/health"
+      }
+    },
+    {
+      "name": "api.md (신규)",
+      "item": [
+        {
+          "name": "Chat turn - non-stream (sleep)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/chat/v1/turns",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"chatHistoryId\": 42,\n  \"userId\": 1,\n  \"messages\": [{\"role\": \"user\", \"content\": \"어젯밤 수면 어땠어?\"}],\n  \"context\": {\"now\": \"2026-07-06 09:30:00\"},\n  \"stream\": false\n}"
+            }
+          }
+        },
+        {
+          "name": "Chat turn - stream (device control, SSE)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/chat/v1/turns",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"chatHistoryId\": 42,\n  \"userId\": 1,\n  \"messages\": [{\"role\": \"user\", \"content\": \"거실 에어컨 온도 조금 낮춰줘. 방 번호는 2번이야.\"}]\n}"
+            }
+          }
+        },
+        {
+          "name": "Chat turn - stream (schedule)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/chat/v1/turns",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"chatHistoryId\": 42,\n  \"userId\": 1,\n  \"messages\": [{\"role\": \"user\", \"content\": \"이번 주 월요일 운동 일정을 화요일로 옮겨줘.\"}]\n}"
+            }
+          }
+        },
+        {
+          "name": "Report - sleep weekly",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/reports/v1/sleep/weekly",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": 1,\n  \"periodStart\": \"2026-06-29\",\n  \"metrics\": {\"averageScore\": 74, \"avgSleepMinutes\": 402, \"wakeUps\": 3},\n  \"raw\": {\"sessions\": []}\n}"
+            }
+          }
+        },
+        {
+          "name": "Report - posture daily",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/reports/v1/posture/daily",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": 1,\n  \"periodStart\": \"2026-07-06\",\n  \"metrics\": {\"score\": 72, \"correctPostureRatio\": 0.68}\n}"
+            }
+          }
+        },
+        {
+          "name": "Report - empty metrics (expect 400 INVALID_REQUEST)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/reports/v1/sleep/daily",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": 1,\n  \"periodStart\": \"2026-07-06\",\n  \"metrics\": {}\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "레거시 (docs/agent_architecture.md)",
+      "item": [
+        {
+          "name": "Chat",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/agent/chat",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"account_id\": \"acc1\",\n  \"message\": \"어젯밤 수면 어땠어?\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Report - sleep weekly",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/agent/reports/sleep/weekly",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"account_id\": \"acc1\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Report - sleep nightly",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/agent/reports/sleep/nightly",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"account_id\": \"acc1\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Report - posture weekly",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/agent/reports/posture/weekly",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"account_id\": \"acc1\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Report - posture daily",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/agent/reports/posture/daily",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"account_id\": \"acc1\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Actions - recommend",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/agent/actions/recommend",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"account_id\": \"acc1\"\n}"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
