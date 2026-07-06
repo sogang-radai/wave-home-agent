@@ -42,6 +42,7 @@ def _to_initial_state(body: ChatTurnRequest) -> ChatTurnState:
         chat_history_id=body.chatHistoryId,
         now=body.context.now,
         retrieved=[r.model_dump() for r in body.context.retrieved],
+        model=body.model,
         rounds=0,
     )
 

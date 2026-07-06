@@ -32,7 +32,7 @@ def build_tool_loop(
     tool_by_name = {t.name: t for t in tools}
 
     async def agent_node(state: dict[str, Any]) -> dict[str, Any]:
-        llm = get_llm()
+        llm = get_llm(state.get("model"))
         rounds = state.get("rounds", 0)
         if llm is None:
             return {"messages": [AIMessage(content=NO_LLM_FALLBACK_TEXT)], "rounds": rounds + 1}
@@ -57,9 +57,13 @@ def build_tool_loop(
                 continue
             try:
                 content = await tool_fn.ainvoke(call["args"])
-                results.append(ToolMessage(content=str(content), tool_call_id=call["id"], status="success"))
+                results.append(
+                    ToolMessage(content=str(content), tool_call_id=call["id"], name=call["name"], status="success")
+                )
             except Exception as exc:  # tool errors must not crash the turn (api.md §2.1)
-                results.append(ToolMessage(content=str(exc), tool_call_id=call["id"], status="error"))
+                results.append(
+                    ToolMessage(content=str(exc), tool_call_id=call["id"], name=call["name"], status="error")
+                )
         return {"messages": results}
 
     def should_continue(state: dict[str, Any]) -> str:

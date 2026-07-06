@@ -34,5 +34,5 @@ async def generate_report(domain: ReportDomain, period: ReportPeriod, body: Repo
         summary=content["summary"],
         highlights=content["highlights"],
         recommendations=content["recommendations"],
-        sources=["core-api"],
+        sources=result.get("sources", ["core-api"]),
     )

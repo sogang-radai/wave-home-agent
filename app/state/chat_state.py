@@ -10,4 +10,5 @@ class ChatTurnState(TypedDict, total=False):
     chat_history_id: int
     now: Optional[str]
     retrieved: list[dict[str, Any]]
+    model: Optional[str]
     rounds: int

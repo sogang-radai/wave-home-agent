@@ -11,27 +11,29 @@ logger = logging.getLogger(__name__)
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
-_llm_singleton: Optional[ChatGoogleGenerativeAI] = None
+_llm_cache: dict[str, ChatGoogleGenerativeAI] = {}
 
 
-def get_llm() -> Optional[ChatGoogleGenerativeAI]:
-    """Returns the shared Gemini client, or None if no API key is configured.
+def get_llm(model: Optional[str] = None) -> Optional[ChatGoogleGenerativeAI]:
+    """Returns a Gemini client for `model` (docs/api.md §1.1's per-request hint),
+    or the configured default if omitted, or None if no API key is configured.
 
     Callers must treat None as "no LLM available" and fall back to rule-based
-    generation, mirroring the WAVEHOME_CORE_API_MOCK fallback pattern.
+    generation, mirroring the WAVEHOME_CORE_API_MOCK fallback pattern. Clients
+    are cached per model name so a per-request hint doesn't pay init cost twice.
     """
     settings = get_settings()
     if not settings.gemini_api_key:
         return None
 
-    global _llm_singleton
-    if _llm_singleton is None:
-        _llm_singleton = ChatGoogleGenerativeAI(
-            model=settings.gemini_model,
+    model_name = model or settings.gemini_model
+    if model_name not in _llm_cache:
+        _llm_cache[model_name] = ChatGoogleGenerativeAI(
+            model=model_name,
             google_api_key=settings.gemini_api_key,
             timeout=settings.gemini_timeout_ms / 1000,
         )
-    return _llm_singleton
+    return _llm_cache[model_name]
 
 
 async def invoke_structured(

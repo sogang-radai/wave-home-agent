@@ -588,10 +588,13 @@ RAG는 백엔드에서 처리한다(백엔드가 그 임베딩 벡터로 자기 
 
 | 기능 | Agent Server 코드 | 호출하는 백엔드 API |
 | --- | --- | --- |
-| 채팅 전반 | `app/routers/chat.py`, `app/graph/` | `POST /internal/v1/db/query` |
-| 기기 제어 | `device_agent`, `app/tools/device_api.py` | `GET /internal/v1/devices`, `POST /internal/v1/devices/{deviceId}/controls/{controlId}` |
-| 일정 변경 | `schedule_agent`, `app/tools/schedule_api.py` | `GET /internal/v1/users/{userId}/routine-tasks`, `PATCH /internal/v1/routine-tasks/{taskId}` |
-| 수면/자세 리포트 | `app/routers/reports.py`, `report_agent` | (인라인 데이터, 필요 시 `POST /internal/v1/db/query`) |
+| 채팅 전반 | `app/routers/chat.py`, `app/graph/turn_graph.py`, `app/graph/tool_loop.py` | `POST /internal/v1/db/query`, `POST /internal/v1/rag/search` |
+| 기기 제어 | `app/graph/tools.py`(`make_list_devices_tool`/`make_control_device_tool`), `app/tools/devices_internal.py` | `GET /internal/v1/devices`, `POST /internal/v1/devices/{deviceId}/controls/{controlId}` |
+| 일정 변경 | `app/graph/tools.py`(`make_get_routine_tasks_tool`/`make_update_routine_task_tool`), `app/tools/routine_tasks_internal.py` | `GET /internal/v1/users/{userId}/routine-tasks`, `PATCH /internal/v1/routine-tasks/{taskId}` |
+| 수면/자세 리포트 | `app/routers/reports_turn.py`, `app/graph/report_turn_graph.py` | (인라인 데이터, 필요 시 `POST /internal/v1/db/query`/`POST /internal/v1/rag/search`) |
+| LLM 포워딩 | `app/routers/llm.py`, `app/clients/ollama.py` | (백엔드 아님 — Ollama `/v1/*`로 포워딩) |
+
+> 위 코드는 전부 §2를 mock으로 구현한 상태다(백엔드 `/internal/v1/*`가 아직 없음). `sleep_agent`/`posture_agent`/`observation_agent`/`lifestyle_agent`(`app/agents/`)와 그 mock 데이터 소스(`app/tools/{sleep,posture,observation,schedule}_api.py`)는 옛 설계 기준 코드가 남아있으나 현재 어떤 라우트에도 연결되어 있지 않다.
 
 ---
 

@@ -62,6 +62,15 @@ def _extract_tool_results(messages: list[Any]) -> list[Any]:
     return extra
 
 
+def _sources_used(messages: list[Any]) -> list[str]:
+    # api.md §1.2: "core-api" is always the base data source; "rag" is added
+    # only when gather_extra_context actually invoked rag_search this turn.
+    sources = ["core-api"]
+    if any(isinstance(m, ToolMessage) and m.name == "rag_search" for m in messages):
+        sources.append("rag")
+    return sources
+
+
 def _rule_based_content(state: dict[str, Any]) -> ReportContent:
     metrics = state["metrics"]
     summary = "; ".join(f"{k}: {v}" for k, v in metrics.items()) or "제공된 지표가 없습니다."
@@ -85,12 +94,13 @@ async def gather_extra_context(state: ReportTurnState) -> dict[str, Any]:
 
 
 async def generate_content(state: ReportTurnState) -> dict[str, Any]:
-    extra_context = _extract_tool_results(state.get("messages", []))
+    messages = state.get("messages", [])
+    extra_context = _extract_tool_results(messages)
     data = {"metrics": state["metrics"], "raw": state.get("raw"), "extraContext": extra_context}
     fallback = _rule_based_content(state)
     prompt = load_prompt("report", "recommendation", report_title=_title(state), data=json.dumps(data, ensure_ascii=False))
     content = await invoke_structured(ReportContent, prompt, fallback=fallback)
-    return {"content": content.model_dump()}
+    return {"content": content.model_dump(), "sources": _sources_used(messages)}
 
 
 def build():

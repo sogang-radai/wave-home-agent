@@ -14,3 +14,4 @@ class ReportTurnState(TypedDict, total=False):
     raw: Optional[dict[str, Any]]
     rounds: int
     content: dict[str, Any]
+    sources: list[str]
