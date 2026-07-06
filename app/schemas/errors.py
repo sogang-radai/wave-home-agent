@@ -11,6 +11,8 @@ ErrorCode = Literal[
     "CORE_API_UNAVAILABLE",
     "LLM_PROVIDER_ERROR",
     "CORE_API_TIMEOUT",
+    "MODEL_NOT_FOUND",
+    "LLM_TIMEOUT",
 ]
 
 

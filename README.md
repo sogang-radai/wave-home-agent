@@ -132,11 +132,18 @@ WAVEHOME_CORE_API_MOCK=true
 
 # docs/api.md §2 /internal/v1/* 아웃바운드 tool(db.query, devices, routine-tasks, rag.search)이 사용
 WAVEHOME_AGENT_INTERNAL_BASE_URL=http://127.0.0.1:8500/internal/v1
+
+# docs/api.md §1.3 /llm/v1/* 프록시가 포워딩할 Ollama 서버 주소 (OpenAI 호환 /v1/* 필요).
+# 실제 팀 공유 주소는 .env에만 넣고 커밋하지 마세요.
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+OLLAMA_TIMEOUT_MS=30000
 ```
 
 `WAVEHOME_CORE_API_MOCK=true`이면 C++ 서버가 아직 준비되지 않아도 mock context로 LangGraph 플로우를 실행할 수 있습니다. C++ 서버 API 연동이 준비되면 이 값을 `false`로 바꾸고 `app/clients/core.py`의 엔드포인트를 실제 스펙에 맞추면 됩니다.
 
 `docs/api.md` §2의 새 outbound tool(`app/tools/db_query.py`, `rag_search.py`, `devices_internal.py`, `routine_tasks_internal.py`)도 같은 `CoreApiClient.is_mock` 패턴을 쓰지만, 백엔드의 `/internal/v1/*`가 아직 없어 지금은 항상 mock 데이터를 반환합니다. 실제 백엔드가 준비되면 `WAVEHOME_AGENT_INTERNAL_BASE_URL`만 맞는 주소로 바꾸면 됩니다(코드 변경 불필요).
+
+`OLLAMA_BASE_URL`은 실제 Ollama 서버(OpenAI 호환 `/v1/*` 활성화됨, `nomic-embed-text` + `gemma2:2b`/`gemma4:12b-mlx` 서빙 중)를 가리켜야 `/llm/v1/*`가 동작합니다.
 
 ## 프로젝트 구조
 
@@ -167,12 +174,15 @@ app/
     insight.py     # 위 4개 agent가 만드는 Insight 모델
   services/      # LLM 클라이언트, 프롬프트 로더
   prompts/       # 도메인별 LLM 프롬프트 템플릿 (sleep/posture/observation/lifestyle/report)
-  clients/       # C++ 서버 API 공용 transport (get/post, 재시도, base_url override)
+  clients/
+    core.py        # C++ 서버 API 공용 transport (get/post, 재시도, base_url override)
+    ollama.py      # Ollama OpenAI 호환 /v1/* transport (/llm/v1/* 프록시가 사용)
   routers/
     chat.py            # POST /chat/v1/turns
     reports_turn.py    # POST /reports/v1/{domain}/{period}
+    llm.py              # GET /llm/v1/models, POST /chat/completions, POST /embeddings
   schemas/
-    chat.py / report_turn.py / errors.py  # docs/api.md 계약과 1:1 대응하는 schema
+    chat.py / report_turn.py / errors.py / llm.py  # docs/api.md 계약과 1:1 대응하는 schema
   errors.py      # AgentApiError + api.md §4 에러 envelope 핸들러
   config.py      # 환경 변수 설정
   main.py        # FastAPI entrypoint
@@ -190,18 +200,20 @@ docs/
 ```http
 POST /chat/v1/turns                       # §1.1 — stream(기본 true, SSE) / stream:false(단일 JSON)
 POST /reports/v1/{domain}/{period}        # §1.2 — domain: sleep|posture, period: daily|weekly
+GET  /llm/v1/models                       # §1.3 — Ollama 서빙 모델 목록 (role: chat|embedding)
+POST /llm/v1/chat/completions             # §1.3 — OpenAI 호환, stream 지원
+POST /llm/v1/embeddings                   # §1.3 — OpenAI 호환, 스트리밍 없음
 ```
 
 - `/chat/v1/turns`는 LLM이 `query_db`/`rag_search`/`list_devices`/`control_device`/`get_routine_tasks`/`update_routine_task` 중 필요한 tool을 스스로 판단해 호출하는 ReAct 루프입니다. SSE 이벤트(`tool.start`/`tool.end`/`message.delta`/`message.completed`/`[DONE]`/`error`)는 §1.1 규약을 그대로 따릅니다.
 - `/reports/v1/{domain}/{period}`는 백엔드가 계산해 보낸 `metrics`/`raw`를 1차 소스로 사용하고, 패턴 설명에 더 넓은 맥락이 필요할 때만 내부적으로 `query_db`를 추가 호출합니다.
 - §2 아웃바운드 tool(`db.query`/`devices`/`routine-tasks`/`rag.search`)은 백엔드 `/internal/v1/*`가 아직 없어 전부 **mock**입니다(`app/tools/db_query.py` 등). 실제 연동 시 `WAVEHOME_AGENT_INTERNAL_BASE_URL`만 바꾸면 됩니다.
-- §1.3 `/llm/v1/*` OpenAI 호환 프록시는 **아직 미구현**입니다.
+- `/llm/v1/*`는 팀에서 공유한 Ollama 서버(OpenAI 호환 `/v1/*`)로의 얇은 프록시입니다(`app/clients/ollama.py`). `GET /models`는 Ollama의 `/api/tags`(`capabilities` 필드로 chat/embedding 구분)를 우리 shape로 매핑하고, `chat/completions`/`embeddings`는 대부분 그대로 전달합니다. 에러는 상태코드 기준으로 매핑합니다: 404→`MODEL_NOT_FOUND`, timeout→`LLM_TIMEOUT`, 그 외→`LLM_PROVIDER_ERROR` (스트리밍 중 에러는 `data: {"error":{...}}\n\n` 이벤트로).
 
 세부 요청/응답 스펙과 C++ 서버 연동 API 계약은 `docs/api.md`를 참고합니다. Postman 컬렉션은 `docs/wavehome-agent.postman_collection.json`에 있습니다.
 
 ## TODO
 - C++ 서버의 `/internal/v1/*`가 준비되면 `app/tools/db_query.py`/`rag_search.py`/`devices_internal.py`/`routine_tasks_internal.py`의 mock 분기를 실제 호출로 교체
-- `docs/api.md` §1.3 `/llm/v1/*` OpenAI 호환 프록시 구현
 - `sleep_agent`/`posture_agent`/`observation_agent`/`lifestyle_agent`를 `/chat/v1/turns` ReAct 루프의 tool(예: `get_sleep_insight`)로 승격 — 단, 지금은 옛 mock(`sleep_api.py` 등)을 쓰고 있어 새 `db_query` mock으로 데이터 소스를 먼저 갈아끼워야 하고, `invoke_structured` LLM 호출을 그대로 tool 안에 둘지(문장 품질↑, 턴당 LLM 호출↑) 각 agent의 `_rule_based_insight` 규칙 기반 로직만 쓸지(호출 비용 없음) 결정 필요
 - C++ 서버 API가 준비되면 위 4개 agent가 쓰는 `app/tools/{sleep,posture,observation,schedule}_api.py`의 mock 분기도 실제 엔드포인트로 교체
 - 카메라/센서 관측 데이터 API가 생기면 `app/tools/observation_api.py`를 실제 연동으로 교체
