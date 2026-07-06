@@ -28,7 +28,9 @@ class _QueryDbArgs(BaseModel):
 def make_query_db_tool(user_id: int) -> BaseTool:
     @tool("query_db", args_schema=_QueryDbArgs)
     async def _query_db(queries: list[DbQuery]) -> str:
-        """사용자의 수면/자세/일정 등 원천 데이터를 조회합니다. userId 필터는 항상 현재 사용자로 고정됩니다."""
+        """정확한 최신 값이 필요할 때 사용하세요: 특정 날짜의 수면 세션/통계, 오늘 일정, 정확한 점수/시간 등
+        구조화된 raw row를 조회합니다. "어젯밤", "오늘", "정확히 몇 점" 같은 질문에 적합합니다.
+        userId 필터는 항상 현재 사용자로 고정됩니다."""
         for q in queries:
             if "userId" in q.filter:
                 q.filter["userId"] = user_id
@@ -46,7 +48,9 @@ class _RagSearchArgs(BaseModel):
 def make_rag_search_tool() -> BaseTool:
     @tool("rag_search", args_schema=_RagSearchArgs)
     async def _rag_search(query: str, targets: list[RagTarget]) -> str:
-        """수면/전력 리포트 및 통계에서 의미 기반으로 관련 스니펫을 검색합니다."""
+        """과거에 만들어진 자연어 요약(리포트 문장, 기간별 패턴 설명)을 의미 기반으로 검색합니다.
+        "요즘", "최근", "패턴", "이전보다", "왜 그런지" 같은 장기 맥락·비교·원인 질문에 적합합니다.
+        정확한 최신 수치가 필요하면 query_db를 대신 쓰세요."""
         results = await rag_search(query, targets)
         return _to_json([r.model_dump() for r in results])
 

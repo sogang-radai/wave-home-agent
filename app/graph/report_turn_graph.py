@@ -6,7 +6,7 @@ from langgraph.graph import END, StateGraph
 from pydantic import BaseModel, Field
 
 from app.graph.tool_loop import build_tool_loop
-from app.graph.tools import make_query_db_tool
+from app.graph.tools import make_query_db_tool, make_rag_search_tool
 from app.services.llm import invoke_structured
 from app.services.prompts import load_prompt
 from app.state.report_turn_state import ReportTurnState
@@ -22,9 +22,12 @@ _TITLES = {
 }
 
 _CONTEXT_SYSTEM_PROMPT = """당신은 WaveHome 리포트 작성을 돕는 조사자입니다.
-주어진 지표(metrics)와 원본 데이터(raw)만으로 패턴을 설명하기 부족할 때만 query_db로
-추가 맥락(예: 지난달 데이터)을 조회하세요. 필요 없으면 tool을 호출하지 말고
-"충분합니다"라고만 답하세요."""
+주어진 지표(metrics)와 원본 데이터(raw)만으로 패턴을 설명하기 부족할 때만 추가로 조회하세요.
+
+- 지난 기간과의 비교, 반복되는 패턴 등 서술적 맥락이 필요하면 rag_search로 과거 리포트를 먼저 찾으세요.
+- 정확한 수치 확인이 필요하면 query_db를 쓰세요.
+
+필요 없으면 tool을 호출하지 말고 "충분합니다"라고만 답하세요."""
 
 
 class ReportContent(BaseModel):
@@ -70,7 +73,7 @@ def _rule_based_content(state: dict[str, Any]) -> ReportContent:
 
 
 async def gather_extra_context(state: ReportTurnState) -> dict[str, Any]:
-    tools = [make_query_db_tool(state["user_id"])]
+    tools = [make_query_db_tool(state["user_id"]), make_rag_search_tool()]
     loop = build_tool_loop(
         ReportTurnState,
         tools,
