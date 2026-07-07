@@ -36,6 +36,51 @@ def get_llm(model: Optional[str] = None) -> Optional[ChatGoogleGenerativeAI]:
     return _llm_cache[model_name]
 
 
+def _extract_text(content: object) -> str:
+    """Gemini 3.x returns AIMessage.content as a list of content blocks (text +
+    thought-signature 'extras', not a plain string like older models). Concatenates
+    just the text blocks; falls back to str() for any other shape."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                parts.append(block.get("text", ""))
+        return "".join(parts)
+    return str(content)
+
+
+async def invoke_text(
+    prompt: str,
+    *,
+    fallback: str,
+    model: Optional[str] = None,
+) -> tuple[str, str]:
+    """Plain-text counterpart to invoke_structured, for docs/api.md §1.4's
+    summaryText/reportText generation. Returns (text, model_name_used); model_name_used
+    is "rule-based" whenever the fallback was used (no LLM configured, or both attempts
+    failed), so callers can surface that honestly in their response's `model` field."""
+    llm = get_llm(model)
+    if llm is None:
+        return fallback, "rule-based"
+
+    for attempt in (1, 2):
+        try:
+            result = await llm.ainvoke(prompt)
+            text = _extract_text(result.content).strip()
+            if not text:
+                raise ValueError("LLM returned empty text content")
+            return text, model or get_settings().gemini_model
+        except Exception:
+            logger.warning("LLM text call failed (attempt %d/2)", attempt, exc_info=True)
+            if attempt == 2:
+                return fallback, "rule-based"
+    return fallback, "rule-based"
+
+
 async def invoke_structured(
     schema: type[ModelT],
     prompt: str,

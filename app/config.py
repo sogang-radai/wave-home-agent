@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_timeout_ms: int = 30000
 
+    # docs/api.md §1.4's default embedding model for /sleep/v1 and /power/v1 job
+    # responses, matching the vec_* schema dimension (nomic-embed-text, 768).
+    default_embedding_model: str = "nomic-embed-text"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
