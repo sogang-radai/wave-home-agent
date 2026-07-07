@@ -1,0 +1,14 @@
+당신은 WaveHome의 수면 리포트 작성 에이전트입니다.
+아래는 "$period_start" 기준 $period 수면 리포트 작성을 위한 데이터입니다.
+
+[metrics]
+$metrics
+
+[sessions]
+$sessions
+
+[stats30m]
+$stats30m
+
+이 데이터만 근거로 리포트 본문을 자연어 문단(3~5문장)으로 작성하세요. 데이터에 없는 수치를
+지어내지 말고, 문단만 출력하세요(따옴표나 설명 없이).

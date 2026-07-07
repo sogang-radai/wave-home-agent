@@ -39,6 +39,7 @@
 |---|---|---|
 | 백엔드 → 에이전트 (인바운드, 에이전트가 서버) | `/chat/v1/turns`, `/reports/v1/{domain}/{period}` 라우트 처리 | `app/routers/` |
 | 백엔드 → 에이전트 (인바운드, LLM 포워딩) | `/llm/v1/models`\|`chat/completions`\|`embeddings` — 백엔드가 챗 턴 외 용도(대시보드 문구 생성 등)로 LLM을 쓸 때 경유하는 OpenAI 호환 프록시. §1.3 참고 | `app/routers/llm.py` |
+| 백엔드 → 에이전트 (인바운드, 수면/전력 분석 job) | `/sleep/v1/summaries`\|`reports`\|`jobs/{jobId}`, `/power/v1/reports`\|`jobs/{jobId}` — RAG 코퍼스용 원본 텍스트+임베딩을 비동기로 생성. §1.4 참고 | `app/routers/sleep_analysis.py`, `app/routers/power_analysis.py` |
 | 에이전트 → 백엔드 (아웃바운드, 에이전트가 클라이언트) | DB 조회·RAG 검색·기기 제어·일정 조회/변경을 httpx로 호출 | `app/tools/*_api.py`, `app/clients/core.py` |
 
 `/llm/v1/*`는 백엔드(C++) 명세서의 설계를 채택한다.
@@ -255,6 +256,110 @@ POST /llm/v1/embeddings
 - `POST /embeddings`는 스트리밍을 지원하지 않으며, 임베딩 모델 차원은 `vec_*` 스키마(현재 `nomic-embed-text`, 768차원)와 일치해야 한다.
 - 채팅 히스토리는 이 API로 저장하지 않는다(`chat_history`는 백엔드 소유).
 - 상세 요청/응답 예시·에러 코드(`MODEL_NOT_FOUND`, `LLM_PROVIDER_ERROR`, `LLM_TIMEOUT`)는 백엔드 API명세서의 "LLM 모델 포워딩 API" 절을 그대로 따른다.
+
+### 1.4 Sleep/Power 분석 API (job 패턴)
+
+`docs/teammate.md`(백엔드 API 명세서)의 Sleep/Power Analysis API를 그대로 채택해 구현한다. §1.2(`POST /reports/v1/{domain}/{period}`)와는 **목적이 다르다**:
+
+| | §1.2 인사이트 리포트 | §1.4 Sleep/Power 분석 API |
+| --- | --- | --- |
+| 목적 | 앱 화면에 바로 표시할 구조화된 리포트 | `sleep_stat.summary_text`/`sleep_report.report_text`/`power_report.report_text`와 `vec_*` 임베딩으로 DB에 적재해 나중에 RAG(§2.6)로 검색될 원본 텍스트 생성 |
+| 응답 형태 | 동기, `summary`/`highlights`/`recommendations` 구조 | 비동기(job), `summaryText`/`reportText` 문자열 하나 + `embedding` |
+| 호출 시점 | 사용자가 앱에서 리포트를 열람할 때 | 원본 데이터(30m 통계, 일/주간 세션, 전력 구간)가 새로 생기거나 백필될 때 |
+
+두 계약은 서로 대체 관계가 아니라 **같은 원본 데이터를 두 가지 용도로 소비**한다 — §1.2는 그때그때 화면에 보여줄 문장을, §1.4는 나중에 검색될 코퍼스를 만든다.
+
+#### 공통
+
+- Base URL: `/sleep/v1`, `/power/v1` (에이전트 서버)
+- 생성은 즉시 끝나지 않을 수 있어 **비동기 job**으로 처리한다. `POST`는 즉시 `202` + `jobId`를 반환하고, `GET .../jobs/{jobId}`로 폴링해 완료 시 결과를 받는다(SSE 미사용).
+- **중복 요청**: 동일 대상(요약=`window.id`, sleep 리포트=`userId`+`period`+`periodStart`, power 리포트=`target.id`)에 `queued`/`running` job이 있으면 `POST`는 **409** `JOB_ALREADY_RUNNING`(`error.detail.jobId`에 기존 jobId).
+- **jobId 보존**: `done`/`failed` 후 **24시간**(서버 프로세스 메모리 기준 — 재시작하면 즉시 유실됨, §7 TODO 참고) 동안 `GET .../jobs/{jobId}` 조회 가능. 이후 `404` `JOB_NOT_FOUND`.
+- **POST vs job 실패**: 입력 검증(빈 `sessions`, 잘못된 `window`/`target.granularity` 등)은 **POST 400**. 텍스트 생성은 Gemini 키가 없거나 실패해도 rule-based 폴백으로 항상 성공하므로 실패하지 않는다. 임베딩(`embed:true`) 생성이 실패(Ollama 연결 불가/타임아웃)하면 폴백이 없으므로 job이 `failed`(`GENERATION_FAILED`/`GENERATION_TIMEOUT`)로 끝난다 — 로컬에 Ollama가 없다면 `embed:false`로 호출해 이 경로를 피할 수 있다.
+- `model`/`embeddingModel`(옵션): 요청 시 힌트로 쓰이고, 응답의 `model`은 실제 사용된 모델명 또는(폴백 시) `"rule-based"`, `embeddingModel`은 실제 임베딩 모델명(기본 `nomic-embed-text`)이다.
+- `/sleep/v1/jobs/{jobId}`는 그 경로에서 생성된 job(요약·수면 리포트)만 조회된다. `/power/v1/jobs/{jobId}`도 마찬가지로 전력 리포트 job만 조회되며, 다른 도메인의 jobId를 넣으면 `404`가 된다(도메인 간 안전장치).
+- 공통 에러 응답: `{ "error": { "code": "...", "message": "..." } }`
+
+#### POST `/sleep/v1/summaries`
+
+30분(`sleep_stat.granularity='30m'`) 구간의 자연어 요약을 생성한다. `window`(대상 30m 행)를 인라인 전달, 더 정밀한 서술이 필요하면 `minutes`(1m 행)를 함께 실을 수 있다.
+
+```json
+{
+  "window": { "id": 4123, "userId": 1, "roomId": 1, "sessionId": 88, "granularity": "30m", "timeStart": "2026-07-01 02:00:00", "timeEnd": "2026-07-01 02:30:00", "coverage": 0.98, "stageLabel": "deep", "hrMean": 58.1, "snoreRatio": 0.03 },
+  "embed": true
+}
+```
+
+**Response 202**: `{ "jobId": "job_...", "status": "queued" }`
+
+**Response 400** — `window.granularity != "30m"`:
+
+```json
+{ "error": { "code": "INVALID_WINDOW", "message": "window.granularity 는 30m 이어야 합니다.", "field": "window.granularity" } }
+```
+
+완료 시 `GET /sleep/v1/jobs/{jobId}`의 `result`:
+
+```json
+{ "statId": 4123, "summaryText": "...", "embedding": [0.01, -0.02], "model": "gemini-3.1-flash-lite", "embeddingModel": "nomic-embed-text" }
+```
+
+#### POST `/sleep/v1/reports`
+
+일간/주간 수면 리포트를 생성한다. `period`·`periodStart`·`metrics`(백엔드 계산)·`sessions`·`stats30m`을 인라인 전달한다.
+
+**Response 400** — `sessions`가 빈 배열:
+
+```json
+{ "error": { "code": "NO_SLEEP_DATA", "message": "sessions 가 비어 있습니다. 해당 기간 수면 데이터를 먼저 조회해 Body 를 구성하세요.", "field": "sessions" } }
+```
+
+**Response 400** — `period="weekly"`인데 `periodStart`가 월요일이 아님:
+
+```json
+{ "error": { "code": "INVALID_WEEK_START", "message": "weekStart는 해당 주의 월요일 날짜여야 합니다.", "field": "periodStart" } }
+```
+
+완료 시 `result`: `{ "period": "daily", "periodStart": "2026-07-01", "reportText": "...", "embedding": [...], "model": "...", "embeddingModel": "..." }`
+
+#### POST `/power/v1/reports`
+
+전력 리포트(`1h`\|`24h`\|`1w`\|`1mo`)를 생성한다. `metrics`·`target`(대상 `power_energy` 행)·`children`(하위 구간, 옵션)을 인라인 전달한다. `deviceId: null`이면 계측 플러그 합산 리포트다.
+
+**Response 400** — `target.granularity`가 `period`와 다름:
+
+```json
+{ "error": { "code": "INVALID_REQUEST", "message": "target.granularity 는 리포트 대상(1h/24h/1w/1mo)이어야 합니다.", "field": "target.granularity" } }
+```
+
+완료 시 `result`: `{ "energyId": 20514, "period": "24h", "periodStart": "2026-07-01", "deviceId": null, "reportText": "...", "embedding": [...], "model": "...", "embeddingModel": "..." }`
+
+#### GET `/sleep/v1/jobs/{jobId}` · `/power/v1/jobs/{jobId}`
+
+**Response 200** — 진행 중: `{ "jobId": "job_...", "status": "running" }` (`result`/`error` 키 없음)
+
+**Response 200** — 완료: `{ "jobId": "job_...", "status": "done", "result": { ... } }`
+
+**Response 200** — 실패: `{ "jobId": "job_...", "status": "failed", "error": { "code": "GENERATION_FAILED", "message": "..." } }`
+
+**Response 404**: `{ "error": { "code": "JOB_NOT_FOUND", "message": "jobId 에 해당하는 작업이 없습니다." } }`
+
+#### 전체 엔드포인트 요약
+
+```http
+POST /sleep/v1/summaries
+POST /sleep/v1/reports
+GET  /sleep/v1/jobs/{jobId}
+POST /power/v1/reports
+GET  /power/v1/jobs/{jobId}
+```
+
+#### 백엔드 연동 지점
+
+- 30m `sleep_stat` 행이 생긴 뒤 `/summaries`를 호출해 `result.summaryText`/`result.embedding`을 `sleep_stat.summary_text`/`vec_sleep_stat`에 저장한다.
+- 일/주간 리포트, 전력 리포트도 각각 완료 후 `sleep_report`/`power_report`와 그 `vec_*`에 upsert한다.
+- 코드: `app/routers/sleep_analysis.py`·`power_analysis.py`, `app/services/sleep_analysis.py`·`power_analysis.py`·`jobs.py`·`embeddings.py`.
 
 ---
 
@@ -579,6 +684,12 @@ RAG는 백엔드에서 처리한다(백엔드가 그 임베딩 벡터로 자기 
 | 502 | `CORE_API_UNAVAILABLE` | 백엔드 호출 실패 (에이전트 → 백엔드) |
 | 502 | `LLM_PROVIDER_ERROR` | LLM 제공자 응답 실패 (백엔드 → 에이전트) |
 | 504 | `CORE_API_TIMEOUT` | 백엔드 응답 시간 초과 |
+| 400 | `INVALID_WINDOW` | §1.4 `window`/`target` 검증 실패 |
+| 400 | `NO_SLEEP_DATA` | §1.4 `sessions`가 비어 있음 |
+| 400 | `INVALID_WEEK_START` | §1.4 weekly `periodStart`가 월요일이 아님 |
+| 409 | `JOB_ALREADY_RUNNING` | §1.4 동일 대상 job이 이미 진행 중(`error.detail.jobId`) |
+| 404 | `JOB_NOT_FOUND` | §1.4 jobId 없음 또는 24시간 경과 |
+| — | `GENERATION_FAILED`/`GENERATION_TIMEOUT` | §1.4 job 실행 중 임베딩 생성 실패(HTTP 상태 아님 — `GET .../jobs/{jobId}`의 `status:"failed"` 응답 안 `error.code`) |
 
 부분 데이터만 조회된 경우에는 가능한 한 응답을 생성하되, `sources` 또는 답변 문장에 데이터 제한을 명시한다.
 
@@ -593,8 +704,10 @@ RAG는 백엔드에서 처리한다(백엔드가 그 임베딩 벡터로 자기 
 | 일정 변경 | `app/graph/tools.py`(`make_get_routine_tasks_tool`/`make_update_routine_task_tool`), `app/tools/routine_tasks_internal.py` | `GET /internal/v1/users/{userId}/routine-tasks`, `PATCH /internal/v1/routine-tasks/{taskId}` |
 | 수면/자세 리포트 | `app/routers/reports_turn.py`, `app/graph/report_turn_graph.py` | (인라인 데이터, 필요 시 `POST /internal/v1/db/query`/`POST /internal/v1/rag/search`) |
 | LLM 포워딩 | `app/routers/llm.py`, `app/clients/ollama.py` | (백엔드 아님 — Ollama `/v1/*`로 포워딩) |
+| 수면 분석(job) | `app/routers/sleep_analysis.py`, `app/services/sleep_analysis.py`, `app/services/jobs.py`, `app/services/embeddings.py` | (인라인 데이터 + Gemini 텍스트 생성 + Ollama `/v1/embeddings`. 백엔드 API 호출 없음) |
+| 전력 분석(job) | `app/routers/power_analysis.py`, `app/services/power_analysis.py` | (위와 동일) |
 
-> 위 코드는 전부 §2를 mock으로 구현한 상태다(백엔드 `/internal/v1/*`가 아직 없음). `sleep_agent`/`posture_agent`/`observation_agent`/`lifestyle_agent`(`app/agents/`)와 그 mock 데이터 소스(`app/tools/{sleep,posture,observation,schedule}_api.py`)는 옛 설계 기준 코드가 남아있으나 현재 어떤 라우트에도 연결되어 있지 않다.
+> 위 코드는 전부 §2를 mock으로 구현한 상태다(백엔드 `/internal/v1/*`가 아직 없음). `sleep_agent`/`posture_agent`/`observation_agent`/`lifestyle_agent`(`app/agents/`)와 그 mock 데이터 소스(`app/tools/{sleep,posture,observation,schedule}_api.py`)는 옛 설계 기준 코드가 남아있으나 현재 어떤 라우트에도 연결되어 있지 않다. (수면/전력 분석 job은 §2 mock과 무관 — 백엔드 API를 호출하지 않고 요청 Body의 인라인 데이터만으로 생성한다.)
 
 ---
 
@@ -640,13 +753,58 @@ curl -X POST http://127.0.0.1:8501/reports/v1/sleep/weekly \
   }'
 ```
 
+### 수면 요약 (job)
+
+```bash
+curl -X POST http://127.0.0.1:8501/sleep/v1/summaries \
+  -H "Content-Type: application/json" \
+  -d '{
+    "window": {"id": 4123, "userId": 1, "roomId": 1, "granularity": "30m", "timeStart": "2026-07-01 02:00:00", "coverage": 0.98, "hrMean": 58.1},
+    "embed": false
+  }'
+# => {"jobId": "job_...", "status": "queued"}
+
+curl http://127.0.0.1:8501/sleep/v1/jobs/job_...
+```
+
+### 수면 리포트 (job)
+
+```bash
+curl -X POST http://127.0.0.1:8501/sleep/v1/reports \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userId": 1, "period": "daily", "periodStart": "2026-07-01",
+    "metrics": {"asleepTotalS": 20160, "efficiency": 0.75},
+    "sessions": [{"id": 88, "userId": 1, "roomId": 1, "radarId": 7714208883279181, "nightDate": "2026-07-01", "onset": "2026-07-01 00:35:00", "finalWake": "2026-07-01 07:55:00", "efficiency": 0.75}],
+    "stats30m": [],
+    "embed": false
+  }'
+```
+
+### 전력 리포트 (job)
+
+```bash
+curl -X POST http://127.0.0.1:8501/power/v1/reports \
+  -H "Content-Type: application/json" \
+  -d '{
+    "deviceId": null, "period": "24h", "periodStart": "2026-07-01",
+    "metrics": {"energyWh": 3820.5, "peakW": 1180.4},
+    "target": {"id": 20514, "deviceId": null, "granularity": "24h", "timeStart": "2026-07-01", "energyWh": 3820.5, "coverage": 0.98, "sampleCount": 288},
+    "embed": false
+  }'
+```
+
 ## 7. TODO
 
 - DB 스키마 설계 남은 것: `device_control`, `posture_*`, `event` 테이블을 허용 목록에 추가 요청(아래 항목과 연결).
 - RAG 검색을 tool로 추가
 - **백엔드 팀에 확인/요청 필요**:
-  1. 리포트 생성 API를 백엔드 API 명세서의 `/sleep/v1`·`/power/v1` 비동기 job 패턴이 아니라 본 문서 §1.2(`POST /reports/v1/{domain}/{period}`, 동기 응답, `summary`/`highlights`/`recommendations` 구조)로 구현해달라고 요청. `power` 도메인도 이 패턴에 포함할지 확인.
+  1. (§1.2 한정, §1.4와는 무관) 앱 화면용 인사이트 리포트 생성은 백엔드 API 명세서의 `/sleep/v1`·`/power/v1` job 패턴이 아니라 본 문서 §1.2(`POST /reports/v1/{domain}/{period}`, 동기 응답, `summary`/`highlights`/`recommendations` 구조)로 구현해달라고 요청. `power` 도메인도 이 패턴에 포함할지 확인. (§1.4의 `/sleep/v1`·`/power/v1` job 패턴 자체는 RAG 코퍼스 생성용으로 이미 이 서버에 구현됨 — 별개 용도.)
   2. `posture` 도메인 스키마 이관(`db_past.md` → `db_updated.md`, 제안안은 `db_updated.md` "자세 트래킹" 절 참고) 및 §1.2 `posture` 리포트 구현 요청.
   3. `POST /internal/v1/devices/{deviceId}/controls/{controlId}` 등 §2.2~2.5(기기 제어·일정) 구현 — 백엔드 API 명세서에서 "에이전트 담당이 먼저 정리"로 남겨둔 부분이므로 본 문서 §2.2~2.5를 그대로 전달.
   4. `/internal/v1/db/query`의 `DbTable` 허용 목록에 `device_control`, `posture_*`, `event` 추가 요청.
 - 추후 확장 고려 사항: **Agentic RAG (평가 후 재검색)**, 한 턴 안에서 `rag.search`를 여러 번 호출해도 된다 — 짧은 동기 tool 호출일 뿐이라 프로토콜상 제약이 없다. 권장 패턴: (1) 검색 → (2) LLM 또는 별도 grading 노드가 스니펫이 질문에 답하기 충분한지 평가 → (3) 부족하면 `query`를 재작성하거나 `targets[].from`/`to`/`topK`를 조정해 다시 호출 → (4) 충분해지면 최종 답변 생성. 챗 SSE 커넥션이 그동안 계속 열려 있으므로 같은 턴에 재검색은 최대 2~3회로 상한을 두는 것을 권장한다.
+- **§1.4 알려진 제약**:
+  1. Job 상태는 프로세스 인메모리 `dict`(`app/services/jobs.py`)에만 있다. 이 서버는 SQLite에 직접 접근하지 않는 원칙이라 영속 저장이 불가능하며, 서버 재시작 시 진행 중이던/완료된 job이 전부 유실된다. 여러 프로세스로 수평 확장하면 job도 프로세스별로 분리된다(현재는 단일 프로세스 가정).
+  2. `embed:true`(기본값)는 로컬/원격 Ollama(`OLLAMA_BASE_URL`)가 떠 있어야 한다 — 연결 실패·타임아웃 시 job이 `GENERATION_FAILED`/`GENERATION_TIMEOUT`으로 끝난다. Ollama 없이 개발/테스트하려면 `embed:false`로 호출한다.
+  3. `POST /power/v1/summaries`는 없다(teammate.md에도 없음 — 요약은 sleep 전용, 전력은 리포트만 있음).

@@ -8,7 +8,7 @@ WaveHome의 에이전트 서버입니다.
 
 이 서버의 책임은 LangGraph 기반 에이전트 플로우를 실행해 채팅 응답, 건강 인사이트, 리포트, 권장 액션, 가전 제어 의도를 생성하는 것입니다.
 
-> **API 계약 현황**: `docs/api.md`가 백엔드-에이전트 계약의 확정안이며, 이 서버는 그 계약(`/chat/v1/turns`, `/reports/v1/{domain}/{period}`)을 그대로 구현합니다 — LLM이 직접 tool 호출 여부를 판단하는 ReAct 루프, SSE 스트리밍. 초기 설계(`docs/agent_architecture.md`, 키워드 기반 라우팅 + 고정 그래프)를 따르던 레거시 `/api/v1/agent/*` 라우트와 그 그래프/agent들은 정리되었습니다. 다만 `sleep_agent`/`posture_agent`/`observation_agent`/`lifestyle_agent`와 이들이 쓰는 mock tool·프롬프트는 향후 ReAct 루프용 "도메인 insight tool"로 승격할 가치가 있어 코드는 남겨뒀고, 현재는 어떤 라우트에도 연결되어 있지 않습니다.
+> **API 계약 현황**: `docs/api.md`가 백엔드-에이전트 계약의 확정안이며, 이 서버는 그 계약(`/chat/v1/turns`, `/reports/v1/{domain}/{period}`, `/sleep/v1/*`, `/power/v1/*`)을 그대로 구현합니다 — LLM이 직접 tool 호출 여부를 판단하는 ReAct 루프, SSE 스트리밍, 그리고 RAG 코퍼스 생성용 비동기 job API. 초기 설계(`docs/agent_architecture.md`, 키워드 기반 라우팅 + 고정 그래프)를 따르던 레거시 `/api/v1/agent/*` 라우트와 그 그래프/agent들은 정리되었습니다. 다만 `sleep_agent`/`posture_agent`/`observation_agent`/`lifestyle_agent`와 이들이 쓰는 mock tool·프롬프트는 향후 ReAct 루프용 "도메인 insight tool"로 승격할 가치가 있어 코드는 남겨뒀고, 현재는 어떤 라우트에도 연결되어 있지 않습니다.
 
 ### 1. 채팅
 
@@ -118,6 +118,15 @@ uvicorn app.main:app --reload --port 8501
 - Swagger 문서: http://127.0.0.1:8501/docs
 - Health check: http://127.0.0.1:8501/health
 
+### 테스트
+
+```bash
+pytest
+```
+
+`tests/`는 실제 Gemini/Ollama 호출 없이(오프라인, `.env`의 키·주소와 무관) `TestClient`로 동작합니다 —
+`conftest.py`가 `get_llm`을 항상 `None`으로, `generate_embedding`을 고정 벡터로 스텁합니다.
+
 ## 환경 변수
 
 ```env
@@ -138,6 +147,10 @@ WAVEHOME_AGENT_INTERNAL_BASE_URL=http://127.0.0.1:8500/internal/v1
 # 실제 팀 공유 주소는 .env에만 넣고 커밋하지 마세요.
 OLLAMA_BASE_URL=http://127.0.0.1:11434
 OLLAMA_TIMEOUT_MS=30000
+
+# docs/api.md §1.4 /sleep/v1, /power/v1 job이 embed:true일 때 쓰는 기본 임베딩 모델.
+# vec_* 스키마 차원(768)과 맞는 nomic-embed-text가 기본값이며, 위 OLLAMA_BASE_URL로 호출합니다.
+DEFAULT_EMBEDDING_MODEL=nomic-embed-text
 ```
 
 `WAVEHOME_CORE_API_MOCK=true`이면 C++ 서버가 아직 준비되지 않아도 mock context로 LangGraph 플로우를 실행할 수 있습니다. C++ 서버 API 연동이 준비되면 이 값을 `false`로 바꾸고 `app/clients/core.py`의 엔드포인트를 실제 스펙에 맞추면 됩니다.
@@ -182,13 +195,28 @@ app/
     chat.py            # POST /chat/v1/turns
     reports_turn.py    # POST /reports/v1/{domain}/{period}
     llm.py              # GET /llm/v1/models, POST /chat/completions, POST /embeddings
+    sleep_analysis.py    # POST /sleep/v1/summaries|reports, GET /sleep/v1/jobs/{jobId}
+    power_analysis.py    # POST /power/v1/reports, GET /power/v1/jobs/{jobId}
+  services/
+    llm.py          # get_llm/invoke_structured/invoke_text (Gemini)
+    prompts.py       # load_prompt(domain, name, **vars)
+    jobs.py           # §1.4 job store (in-memory, TTL 24h, dedup by target key)
+    embeddings.py     # §1.4 Ollama 임베딩 호출 래퍼
+    sleep_analysis.py  # §1.4 sleep summary/report job 실행 로직 + rule-based 폴백
+    power_analysis.py  # §1.4 power report job 실행 로직 + rule-based 폴백
   schemas/
     chat.py / report_turn.py / errors.py / llm.py  # docs/api.md 계약과 1:1 대응하는 schema
+    sleep_analysis.py / power_analysis.py / jobs.py  # §1.4 request/response schema
   errors.py      # AgentApiError + api.md §4 에러 envelope 핸들러
   config.py      # 환경 변수 설정
   main.py        # FastAPI entrypoint
+tests/
+  conftest.py               # TestClient fixture, LLM/임베딩 오프라인 스텁, job 폴링 헬퍼
+  test_sleep_analysis.py    # §1.4 summaries/reports happy-path·검증·409·404
+  test_power_analysis.py    # §1.4 power reports happy-path·검증·409·404·임베딩 실패
 docs/
   api.md                 # 확정 계약 (이 문서 기준으로 구현)
+  teammate.md             # 백엔드 API 명세서(팀 공유) — §1.4는 이 문서의 Sleep/Power Analysis API를 채택
   agent_architecture.md  # 이전 아키텍처 설계(참고용, 코드는 정리됨)
   design.md
   interface.md
@@ -199,22 +227,31 @@ docs/
 ## API 구현
 postman documentation: https://documenter.getpostman.com/view/42800287/2sBY4JvhRh
 
+위 호스팅 컬렉션에는 아직 §1.4(`/sleep/v1/*`, `/power/v1/*`)가 없습니다. `postman/sleep_power_analysis.postman_collection.json`을 Postman에서 Import해 위 컬렉션에 수동으로 병합하세요(Postman API 접근 권한이 없어 호스팅 컬렉션은 직접 갱신할 수 없습니다).
+
 ```http
 POST /chat/v1/turns                       # §1.1 — stream(기본 true, SSE) / stream:false(단일 JSON)
 POST /reports/v1/{domain}/{period}        # §1.2 — domain: sleep|posture, period: daily|weekly
 GET  /llm/v1/models                       # §1.3 — Ollama 서빙 모델 목록 (role: chat|embedding)
 POST /llm/v1/chat/completions             # §1.3 — OpenAI 호환, stream 지원
 POST /llm/v1/embeddings                   # §1.3 — OpenAI 호환, 스트리밍 없음
+POST /sleep/v1/summaries                  # §1.4 — 202+jobId, 30m 수면 통계 요약 생성(job)
+POST /sleep/v1/reports                    # §1.4 — 202+jobId, 일/주간 수면 리포트 생성(job)
+GET  /sleep/v1/jobs/{jobId}                # §1.4 — 위 두 job 폴링
+POST /power/v1/reports                    # §1.4 — 202+jobId, 전력 리포트 생성(job)
+GET  /power/v1/jobs/{jobId}                # §1.4 — 위 job 폴링
 ```
 
 - `/chat/v1/turns`는 LLM이 `query_db`/`rag_search`/`list_devices`/`control_device`/`get_routine_tasks`/`update_routine_task` 중 필요한 tool을 스스로 판단해 호출하는 ReAct 루프입니다. SSE 이벤트(`tool.start`/`tool.end`/`message.delta`/`message.completed`/`[DONE]`/`error`)는 §1.1 규약을 그대로 따릅니다.
 - `/reports/v1/{domain}/{period}`는 백엔드가 계산해 보낸 `metrics`/`raw`를 1차 소스로 사용하고, 패턴 설명에 더 넓은 맥락이 필요할 때만 내부적으로 `query_db`를 추가 호출합니다.
 - §2 아웃바운드 tool(`db.query`/`devices`/`routine-tasks`/`rag.search`)은 백엔드 `/internal/v1/*`가 아직 없어 전부 **mock**입니다(`app/tools/db_query.py` 등). 실제 연동 시 `WAVEHOME_AGENT_INTERNAL_BASE_URL`만 바꾸면 됩니다.
 - `/llm/v1/*`는 팀에서 공유한 Ollama 서버(OpenAI 호환 `/v1/*`)로의 얇은 프록시입니다(`app/clients/ollama.py`). `GET /models`는 Ollama의 `/api/tags`(`capabilities` 필드로 chat/embedding 구분)를 우리 shape로 매핑하고, `chat/completions`/`embeddings`는 대부분 그대로 전달합니다. 에러는 상태코드 기준으로 매핑합니다: 404→`MODEL_NOT_FOUND`, timeout→`LLM_TIMEOUT`, 그 외→`LLM_PROVIDER_ERROR` (스트리밍 중 에러는 `data: {"error":{...}}\n\n` 이벤트로).
+- **`/sleep/v1/*`·`/power/v1/*`(§1.4, 구현완료)**: `docs/teammate.md`(백엔드 API 명세서)의 Sleep/Power Analysis API를 그대로 구현한 비동기 job API입니다. `/reports/v1/{domain}/{period}`(§1.2, 앱 화면용 구조화 리포트)와는 목적이 다르며 — 이쪽은 `sleep_stat.summary_text`/`sleep_report.report_text`/`power_report.report_text`로 저장되어 나중에 RAG(`rag_search`)로 검색될 원본 텍스트+임베딩을 생성합니다. `POST`는 즉시 `202`+`jobId`를 반환하고 `GET .../jobs/{jobId}`로 폴링합니다. 텍스트는 Gemini로 생성하되 키가 없거나 실패하면 rule-based 폴백으로 항상 성공하고(`model:"rule-based"`), 임베딩(`embed:true`, 기본값)은 Ollama(`nomic-embed-text`)로 생성하며 실패 시 폴백 없이 job이 `failed`(`GENERATION_FAILED`/`GENERATION_TIMEOUT`)로 끝납니다. 동일 대상(`window.id`/`userId+period+periodStart`/`target.id`)에 진행 중인 job이 있으면 `409 JOB_ALREADY_RUNNING`. **알려진 제약**: job 상태는 `app/services/jobs.py`의 프로세스 인메모리 `dict`뿐이라 서버 재시작 시 전부 유실됩니다(SQLite 미접근 원칙상 영속화 불가). 코드: `app/routers/sleep_analysis.py`·`power_analysis.py`, `app/services/sleep_analysis.py`·`power_analysis.py`·`jobs.py`·`embeddings.py`.
 
 세부 요청/응답 스펙과 C++ 서버 연동 API 계약은 `docs/api.md`를 참고합니다.
 
 ## TODO
+- §1.4 job 상태(`app/services/jobs.py`)는 프로세스 인메모리 `dict`뿐이라 서버 재시작 시 유실됨 — 이 서버는 SQLite에 직접 접근하지 않는 원칙이라 영속화하려면 별도 저장소(백엔드 위임 또는 Redis 등) 도입이 필요
 - C++ 서버의 `/internal/v1/*`가 준비되면 `app/tools/db_query.py`/`rag_search.py`/`devices_internal.py`/`routine_tasks_internal.py`의 mock 분기를 실제 호출로 교체
 - `sleep_agent`/`posture_agent`/`observation_agent`/`lifestyle_agent`를 `/chat/v1/turns` ReAct 루프의 tool(예: `get_sleep_insight`)로 승격 — 단, 지금은 옛 mock(`sleep_api.py` 등)을 쓰고 있어 새 `db_query` mock으로 데이터 소스를 먼저 갈아끼워야 하고, `invoke_structured` LLM 호출을 그대로 tool 안에 둘지(문장 품질↑, 턴당 LLM 호출↑) 각 agent의 `_rule_based_insight` 규칙 기반 로직만 쓸지(호출 비용 없음) 결정 필요
 - C++ 서버 API가 준비되면 위 4개 agent가 쓰는 `app/tools/{sleep,posture,observation,schedule}_api.py`의 mock 분기도 실제 엔드포인트로 교체

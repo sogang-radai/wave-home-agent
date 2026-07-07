@@ -13,6 +13,14 @@ ErrorCode = Literal[
     "CORE_API_TIMEOUT",
     "MODEL_NOT_FOUND",
     "LLM_TIMEOUT",
+    # docs/api.md §1.4 (Sleep/Power Analysis API, job pattern)
+    "INVALID_WINDOW",
+    "NO_SLEEP_DATA",
+    "INVALID_WEEK_START",
+    "JOB_ALREADY_RUNNING",
+    "JOB_NOT_FOUND",
+    "GENERATION_FAILED",
+    "GENERATION_TIMEOUT",
 ]
 
 
