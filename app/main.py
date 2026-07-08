@@ -5,7 +5,7 @@ from fastapi.exceptions import RequestValidationError
 
 from app.config import get_settings
 from app.errors import AgentApiError, agent_api_error_handler, validation_error_handler
-from app.routers import chat, insight, llm, power_analysis, reports_turn, sleep_analysis
+from app.routers import chat, insight, llm, power_analysis, reports_turn, sleep_analysis, weekly_plan
 
 
 # INFO-level app.* logs (job lifecycle in app/services/jobs.py, embedding calls in
@@ -24,6 +24,7 @@ app.include_router(llm.router)  # docs/api.md §1.3
 app.include_router(sleep_analysis.router)  # docs/api.md §1.4
 app.include_router(power_analysis.router)  # docs/api.md §1.4
 app.include_router(insight.router)  # agent-be/agent-api/insight-generation-api.md
+app.include_router(weekly_plan.router)  # agent-be/agent-api/weekly-plan-analysis-api.md
 
 
 @app.get("/health")
