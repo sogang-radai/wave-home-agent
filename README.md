@@ -7,11 +7,13 @@ WaveHome의 AI 에이전트 서버입니다. 사용자 데이터, 센서 데이�
 | 영역 | 엔드포인트 | 설명 |
 | --- | --- | --- |
 | 채팅 | `POST /chat/v1/turns` | LangGraph ReAct 루프로 필요한 tool을 선택하고 답변을 생성합니다. |
-| 앱 리포트 | `POST /reports/v1/{domain}/{period}` | 앱 화면에 바로 표시할 `summary`/`highlights`/`recommendations`를 생성합니다. |
+| 앱 리포트 (레거시) | `POST /reports/v1/{domain}/{period}` | 앱 화면에 바로 표시할 `summary`/`highlights`/`recommendations`를 생성합니다. |
 | LLM 프록시 | `/llm/v1/*` | 백엔드가 OpenAI 호환 방식으로 Ollama를 호출할 때 경유합니다. |
 | 분석 job | `/sleep/v1/*`, `/power/v1/*` | RAG 코퍼스용 텍스트와 임베딩을 비동기로 생성합니다. |
+| 인사이트 생성 job | `/insight/v1/*` | 대시보드 배너·주간계획·리포트용 인사이트를 배치 생성합니다. |
+| 주간 계획 배너 job | `/weekly-plan/v1/*` | 주간 계획 화면 상단 배너 문구를 생성합니다. |
 
-자세, 관측, 생활 패턴용 레거시 agent 코드는 남아 있지만 현재 공개 라우트에는 연결되어 있지 않습니다. 실제 데이터가 연결된 경로는 수면, 전력, 일정, 기기 제어 중심입니다.
+기기 제어·룰·예약·일정·알람 tool(`app/tools/*_internal.py`)은 `agent-be/agent-api/*.md` 신규 스펙에 맞춰 구현돼 있으나, 백엔드(`/internal/v1/rules`·`/schedule-tasks`·`/alarms` 등)가 아직 이 엔드포인트들을 구현하지 않은 상태라 `WAVEHOME_CORE_API_MOCK=true`(mock 데이터)로만 검증됐습니다.
 
 ## 실행
 
@@ -82,4 +84,10 @@ GET  /sleep/v1/jobs/{jobId}
 
 POST /power/v1/reports
 GET  /power/v1/jobs/{jobId}
+
+POST /insight/v1/insights
+GET  /insight/v1/jobs/{jobId}
+
+POST /weekly-plan/v1/reports
+GET  /weekly-plan/v1/jobs/{jobId}
 ```
