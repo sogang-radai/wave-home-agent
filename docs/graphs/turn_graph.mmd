@@ -5,13 +5,24 @@ config:
 ---
 graph TD;
 	__start__([<p>__start__</p>]):::first
-	agent(agent)
-	tools(tools)
+	router(router)
+	sleep(sleep)
+	power(power)
+	posture(posture)
+	iot(iot)
+	general(general)
 	__end__([<p>__end__</p>]):::last
-	__start__ --> agent;
-	agent -.-> __end__;
-	agent -.-> tools;
-	tools --> agent;
+	__start__ --> router;
+	router -.-> general;
+	router -.-> iot;
+	router -.-> posture;
+	router -.-> power;
+	router -.-> sleep;
+	general --> __end__;
+	iot --> __end__;
+	posture --> __end__;
+	power --> __end__;
+	sleep --> __end__;
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0
 	classDef last fill:#bfb6fc

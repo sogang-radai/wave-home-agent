@@ -12,3 +12,4 @@ class ChatTurnState(TypedDict, total=False):
     retrieved: list[dict[str, Any]]
     model: Optional[str]
     rounds: int
+    domain: Optional[str]

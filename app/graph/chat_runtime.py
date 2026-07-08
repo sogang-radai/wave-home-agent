@@ -4,7 +4,6 @@ from typing import Any, AsyncIterator, Callable, Awaitable
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from app.config import get_settings
-from app.graph.tools import build_tools
 from app.graph.turn_graph import build_chat_graph, scrub_disclaimer
 from app.schemas.chat import ChatTurnRequest, ChatTurnResponse, ToolCallRecord
 from app.state.chat_state import ChatTurnState
@@ -75,8 +74,7 @@ def _summarize_tool_result(name: str, raw: str) -> Any:
 
 
 async def stream_turn(body: ChatTurnRequest, disconnect: Callable[[], Awaitable[bool]]) -> AsyncIterator[bytes]:
-    tools = build_tools(body.userId)
-    graph = build_chat_graph(tools)
+    graph = build_chat_graph(body.userId)
     state = _to_initial_state(body)
     current_answer = ""
 
@@ -125,8 +123,7 @@ async def stream_turn(body: ChatTurnRequest, disconnect: Callable[[], Awaitable[
 
 
 async def run_turn_sync(body: ChatTurnRequest) -> ChatTurnResponse:
-    tools = build_tools(body.userId)
-    graph = build_chat_graph(tools)
+    graph = build_chat_graph(body.userId)
     state = _to_initial_state(body)
 
     result = await graph.ainvoke(state)

@@ -10,13 +10,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.graph import report_turn_graph, turn_graph
-from app.graph.tools import build_tools
+from app.graph import chat_subgraphs, report_turn_graph, turn_graph
 
 OUT_DIR = Path(__file__).resolve().parent.parent / "docs" / "graphs"
 
 GRAPH_BUILDERS = {
-    "turn_graph": lambda: turn_graph.build_chat_graph(build_tools(user_id=0)),
+    "turn_graph": lambda: turn_graph.build_chat_graph(user_id=0),
+    # All domain subgraphs share the same 2-node build_tool_loop shape (only the
+    # tool list/prompt differ per domain), so "sleep" stands in for all of them.
+    "chat_domain_subgraph": lambda: chat_subgraphs.build_domain_subgraph("sleep", user_id=0),
     "report_turn_graph": report_turn_graph.build,
 }
 

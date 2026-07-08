@@ -15,7 +15,7 @@ from typing import Any, Literal, Optional
 from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field
 
-from app.tools.db_query import DbQuery, query_db
+from app.tools.db_query import DbQuery, DbQueryError, DbQueryResultItem, MAX_QUERIES, query_db
 from app.tools.devices_internal import control_device, list_devices
 from app.tools.rag_search import RagTarget, rag_search
 from app.tools.routine_tasks_internal import get_routine_tasks, update_routine_task
@@ -25,7 +25,12 @@ class _QueryDbArgs(BaseModel):
     queries: list[DbQuery] = Field(..., description="최대 10개의 배치 조회. api.md §2.1 참고.")
 
 
-def make_query_db_tool(user_id: int) -> BaseTool:
+def make_query_db_tool(user_id: int, *, allowed_tables: Optional[set[str]] = None) -> BaseTool:
+    """allowed_tables restricts which `table` values a domain subgraph may query
+    (app/graph/domain_tools.py). Disallowed tables come back as a per-query
+    INVALID_FILTER error, same shape as db_query.py's own table validation,
+    instead of silently dropping or reaching the real backend."""
+
     @tool("query_db", args_schema=_QueryDbArgs)
     async def _query_db(queries: list[DbQuery]) -> str:
         """정확한 최신 값이 필요할 때 사용하세요: 특정 날짜의 수면 세션/통계, 오늘 일정, 정확한 점수/시간 등
@@ -34,7 +39,24 @@ def make_query_db_tool(user_id: int) -> BaseTool:
         for q in queries:
             if "userId" in q.filter:
                 q.filter["userId"] = user_id
-        results = await query_db(queries)
+
+        results: list[DbQueryResultItem] = []
+        for q in queries[:MAX_QUERIES]:
+            if allowed_tables is not None and q.table not in allowed_tables:
+                results.append(
+                    DbQueryResultItem(
+                        table=q.table,
+                        count=0,
+                        items=[],
+                        error=DbQueryError(
+                            code="INVALID_FILTER",
+                            message=f"이 도메인에서는 조회할 수 없는 테이블입니다: {q.table}",
+                            field="table",
+                        ),
+                    )
+                )
+                continue
+            results.extend(await query_db([q]))
         return _to_json([r.model_dump() for r in results])
 
     return _query_db
@@ -45,12 +67,20 @@ class _RagSearchArgs(BaseModel):
     targets: list[RagTarget] = Field(..., description="검색 대상 컬렉션 목록. api.md §2.6 참고.")
 
 
-def make_rag_search_tool() -> BaseTool:
+def make_rag_search_tool(*, allowed_collections: Optional[set[str]] = None) -> BaseTool:
+    """allowed_collections restricts which rag_search collections a domain
+    subgraph may target (app/graph/domain_tools.py); other targets are dropped
+    before the call."""
+
     @tool("rag_search", args_schema=_RagSearchArgs)
     async def _rag_search(query: str, targets: list[RagTarget]) -> str:
         """과거에 만들어진 자연어 요약(리포트 문장, 기간별 패턴 설명)을 의미 기반으로 검색합니다.
         "요즘", "최근", "패턴", "이전보다", "왜 그런지" 같은 장기 맥락·비교·원인 질문에 적합합니다.
         정확한 최신 수치가 필요하면 query_db를 대신 쓰세요."""
+        if allowed_collections is not None:
+            targets = [t for t in targets if t.collection in allowed_collections]
+        if not targets:
+            return _to_json([])
         results = await rag_search(query, targets)
         return _to_json([r.model_dump() for r in results])
 
