@@ -1,10 +1,9 @@
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from app.errors import AgentApiError
 from app.schemas.jobs import JobRef
 from app.schemas.sleep_analysis import SleepReportRequest, SleepSummaryRequest
-from app.services.jobs import job_store
+from app.services.job_common import get_job_or_404, job_response
 from app.services.sleep_analysis import REPORT_KIND, SUMMARY_KIND, create_report_job, create_summary_job
 
 
@@ -23,13 +22,4 @@ async def create_report(body: SleepReportRequest) -> JobRef:
 
 @router.get("/jobs/{job_id}")
 async def get_job(job_id: str) -> JSONResponse:
-    job = job_store.get(job_id, kinds={SUMMARY_KIND, REPORT_KIND})
-    if job is None:
-        raise AgentApiError(404, "JOB_NOT_FOUND", "jobId 에 해당하는 작업이 없습니다.")
-
-    payload = {"jobId": job.job_id, "status": job.status}
-    if job.result is not None:
-        payload["result"] = job.result
-    if job.error is not None:
-        payload["error"] = job.error
-    return JSONResponse(content=payload)
+    return job_response(get_job_or_404(job_id, kinds={SUMMARY_KIND, REPORT_KIND}))
