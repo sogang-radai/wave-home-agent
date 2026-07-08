@@ -178,7 +178,7 @@ async def update_alarm(alarm_id: int, user_id: int, **fields: Any) -> Alarm:
         raise InternalApiError("NOT_FOUND", f"id={alarm_id} 인 알람을 찾을 수 없습니다.")
 
     try:
-        response = await client.patch(f"/alarms/{alarm_id}", json=_alarm_to_wire(fields))
+        response = await client.patch(f"/alarms/{alarm_id}", json=_alarm_to_wire(fields), params={"userId": user_id})
     except ToolError as exc:
         _raise_from_tool_error(exc)
     return _alarm_from_wire(response)
@@ -194,7 +194,7 @@ async def delete_alarm(alarm_id: int, user_id: int) -> int:
         return alarm_id
 
     try:
-        response = await client.delete(f"/alarms/{alarm_id}")
+        response = await client.delete(f"/alarms/{alarm_id}", params={"userId": user_id})
     except ToolError as exc:
         _raise_from_tool_error(exc)
     return int(response["id"])

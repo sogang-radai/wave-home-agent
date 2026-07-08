@@ -175,7 +175,7 @@ async def update_schedule_task(task_id: int, user_id: int, **fields: Any) -> Sch
         raise InternalApiError("NOT_FOUND", f"id={task_id} 인 일정을 찾을 수 없습니다.")
 
     try:
-        response = await client.patch(f"/schedule-tasks/{task_id}", json=fields)
+        response = await client.patch(f"/schedule-tasks/{task_id}", json=fields, params={"userId": user_id})
     except ToolError as exc:
         _raise_from_tool_error(exc)
     return ScheduleTask.model_validate(response)
@@ -193,7 +193,7 @@ async def delete_schedule_task(task_id: int, user_id: int) -> int:
         return task_id
 
     try:
-        response = await client.delete(f"/schedule-tasks/{task_id}")
+        response = await client.delete(f"/schedule-tasks/{task_id}", params={"userId": user_id})
     except ToolError as exc:
         _raise_from_tool_error(exc)
     return int(response["id"])

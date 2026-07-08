@@ -480,6 +480,113 @@ def make_delete_alarm_tool(user_id: int) -> BaseTool:
     return _delete_alarm
 
 
+def make_get_device_classes_tool(user_id: int) -> BaseTool:
+    @tool("get_device_classes")
+    async def _get_device_classes() -> str:
+        """장치 class(모델군)별로 실행 가능한 action/query 목록과 특성을 조회합니다.
+        특정 장치가 아니라 class 단위의 정적 능력치 카탈로그입니다."""
+        classes = await devices_internal.get_device_classes()
+        return _to_json([c.model_dump(by_alias=True) for c in classes])
+
+    return _get_device_classes
+
+
+class _ListIrCommandsArgs(BaseModel):
+    device_hint: Optional[str] = Field(None, description="장치 힌트로 필터링 (예: 'LG 에어컨')")
+    source: Optional[Literal["learned", "manual"]] = Field(None, description="학습됨/수동 등록 필터")
+
+
+def make_list_ir_commands_tool(user_id: int) -> BaseTool:
+    @tool("list_ir_commands", args_schema=_ListIrCommandsArgs)
+    async def _list_ir_commands(
+        device_hint: Optional[str] = None, source: Optional[Literal["learned", "manual"]] = None
+    ) -> str:
+        """등록된 IR(적외선) 명령 목록을 조회합니다. 실제 전송은 control_device 의 send_ir
+        action으로 하세요(전송 전용 tool은 별도로 없습니다)."""
+        commands = await rules_internal.list_ir_commands(device_hint=device_hint, source=source)
+        return _to_json([c.model_dump() for c in commands])
+
+    return _list_ir_commands
+
+
+class _GetIrCommandArgs(BaseModel):
+    command_id: str = Field(..., description="list_ir_commands 결과의 id")
+
+
+def make_get_ir_command_tool(user_id: int) -> BaseTool:
+    @tool("get_ir_command", args_schema=_GetIrCommandArgs)
+    async def _get_ir_command(command_id: str) -> str:
+        """IR 명령 하나의 상세 정보(원시 타이밍 포함)를 조회합니다."""
+        command = await rules_internal.get_ir_command(command_id)
+        return _to_json(command.model_dump())
+
+    return _get_ir_command
+
+
+class _ListEventsArgs(BaseModel):
+    types: Optional[list[str]] = Field(
+        None, description="이벤트 타입 필터: connection/gesture/ir/execution/schedule 중 일부"
+    )
+    room_id: Optional[int] = Field(None, description="특정 장치의 이벤트만 보려면 device와 함께 지정")
+    device: Optional[str] = Field(None, description="장치 이름(부분 일치). room_id와 함께 지정")
+    since: Optional[str] = Field(None, description="'YYYY-MM-DD HH:MM:SS' 이후 이벤트만")
+    until: Optional[str] = Field(None, description="'YYYY-MM-DD HH:MM:SS' 이전 이벤트만")
+    limit: int = Field(50, description="최대 200")
+
+
+def make_list_events_tool(user_id: int) -> BaseTool:
+    @tool("list_events", args_schema=_ListEventsArgs)
+    async def _list_events(
+        types: Optional[list[str]] = None,
+        room_id: Optional[int] = None,
+        device: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        limit: int = 50,
+    ) -> str:
+        """장치 연결/제스처/IR/실행/예약 이벤트 타임라인을 조회합니다."""
+        device_id = (
+            await devices_internal.resolve_device_id(room_id, device, user_id=user_id)
+            if room_id is not None and device is not None
+            else None
+        )
+        events = await rules_internal.list_events(types=types, device_id=device_id, from_=since, to=until, limit=limit)
+        return _to_json([e.model_dump() for e in events])
+
+    return _list_events
+
+
+class _ExecuteRuleArgs(BaseModel):
+    rule_id: str = Field(
+        ..., description="list_schedules 결과의 id. 지금 즉시 1회 실행합니다(예약 자체는 그대로 유지됨)."
+    )
+
+
+def make_execute_rule_tool(user_id: int) -> BaseTool:
+    @tool("execute_rule", args_schema=_ExecuteRuleArgs)
+    async def _execute_rule(rule_id: str) -> str:
+        """등록된 예약/룰을 지금 즉시 한 번 실행합니다."""
+        result = await rules_internal.execute_rule(rule_id)
+        return _to_json(result)
+
+    return _execute_rule
+
+
+class _SetRuleEnabledArgs(BaseModel):
+    rule_id: str = Field(..., description="list_schedules 결과의 id")
+    enabled: bool = Field(..., description="true=활성화, false=비활성화(삭제하지 않고 잠시 꺼둠)")
+
+
+def make_set_rule_enabled_tool(user_id: int) -> BaseTool:
+    @tool("set_rule_enabled", args_schema=_SetRuleEnabledArgs)
+    async def _set_rule_enabled(rule_id: str, enabled: bool) -> str:
+        """예약/룰을 삭제하지 않고 활성화/비활성화만 전환합니다."""
+        rule = await rules_internal.set_rule_enabled(rule_id, enabled)
+        return _to_json(rule.model_dump())
+
+    return _set_rule_enabled
+
+
 def build_tools(user_id: int) -> list[BaseTool]:
     return [
         make_query_db_tool(user_id),
@@ -500,6 +607,12 @@ def build_tools(user_id: int) -> list[BaseTool]:
         make_create_alarm_tool(user_id),
         make_update_alarm_tool(user_id),
         make_delete_alarm_tool(user_id),
+        make_get_device_classes_tool(user_id),
+        make_list_ir_commands_tool(user_id),
+        make_get_ir_command_tool(user_id),
+        make_list_events_tool(user_id),
+        make_execute_rule_tool(user_id),
+        make_set_rule_enabled_tool(user_id),
     ]
 
 

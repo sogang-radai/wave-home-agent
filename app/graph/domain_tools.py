@@ -17,16 +17,22 @@ from app.graph.tools import (
     make_create_schedule_task_tool,
     make_delete_alarm_tool,
     make_delete_schedule_task_tool,
+    make_execute_rule_tool,
     make_get_alarms_tool,
     make_get_device_capabilities_tool,
+    make_get_device_classes_tool,
     make_get_device_state_tool,
+    make_get_ir_command_tool,
     make_get_schedule_tasks_tool,
     make_list_devices_tool,
+    make_list_events_tool,
+    make_list_ir_commands_tool,
     make_list_schedules_tool,
     make_query_db_tool,
     make_query_device_tool,
     make_rag_search_tool,
     make_schedule_device_action_tool,
+    make_set_rule_enabled_tool,
     make_update_alarm_tool,
     make_update_schedule_task_tool,
 )
@@ -73,4 +79,10 @@ def build_domain_tools(domain: Domain, user_id: int) -> list[BaseTool]:
         tools.append(make_create_alarm_tool(user_id))
         tools.append(make_update_alarm_tool(user_id))
         tools.append(make_delete_alarm_tool(user_id))
+        tools.append(make_get_device_classes_tool(user_id))
+        tools.append(make_list_ir_commands_tool(user_id))
+        tools.append(make_get_ir_command_tool(user_id))
+        tools.append(make_list_events_tool(user_id))
+        tools.append(make_execute_rule_tool(user_id))
+        tools.append(make_set_rule_enabled_tool(user_id))
     return tools

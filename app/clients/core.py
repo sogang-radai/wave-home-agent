@@ -70,8 +70,8 @@ class CoreApiClient:
     async def delete(self, path: str, params: Optional[dict[str, Any]] = None) -> Any:
         return await self._request("DELETE", path, params=params)
 
-    async def patch(self, path: str, json: Optional[dict[str, Any]] = None) -> Any:
-        return await self._request("PATCH", path, json=json)
+    async def patch(self, path: str, json: Optional[dict[str, Any]] = None, params: Optional[dict[str, Any]] = None) -> Any:
+        return await self._request("PATCH", path, json=json, params=params)
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
         # schedule-tasks-api.md/alarms-api.md 의 GET 은 봉투 없이 배열을 바로 반환하므로
