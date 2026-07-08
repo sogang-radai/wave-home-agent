@@ -24,7 +24,7 @@ DOMAIN_TABLES: dict[str, set[str]] = {
     "sleep": {"sleep_session", "sleep_stat", "sleep_report"},
     "power": {"power_energy", "power_report"},
     "posture": {"gesture_set", "gesture_log"},
-    "iot": {"routine_task", "device"},
+    "iot": {"schedule_task", "device"},
 }
 
 DOMAIN_RAG_COLLECTIONS: dict[str, set[str]] = {

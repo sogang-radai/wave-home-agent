@@ -91,19 +91,61 @@ def _sleep_report_mock(user_id: int) -> list[dict[str, Any]]:
     ]
 
 
-def _routine_task_mock(user_id: int) -> list[dict[str, Any]]:
+def _schedule_task_mock(user_id: int) -> list[dict[str, Any]]:
     return [
         {
             "id": 501,
             "userId": user_id,
             "title": "운동",
+            "createdAt": "2026-06-01 09:00:00",
+            "createdBy": "user",
             "category": "exercise",
+            "scheduleKind": "weekly",
             "dayOfWeek": "mon",
+            "eventDate": None,
             "startMinute": 1260,
             "endMinute": 1290,
             "done": False,
+            "sourceInsightId": None,
         }
     ]
+
+
+# device-tool-api.md §설계 원칙 4: roomId+장치이름 해석은 device/device_room_map 조회로 처리한다.
+# Phase 3의 devices_internal.resolve_device_id() 가 mock 모드에서도 id/이름이 어긋나지 않도록
+# 이 카탈로그를 그대로 import 해서 재사용한다.
+MOCK_DEVICES: list[dict[str, Any]] = [
+    {"id": 7714208883279181, "name": "거실 에어컨", "description": "거실 벽걸이 에어컨",
+     "class": "tuya_ep2h", "archived": 0, "roomId": 2},
+    {"id": 7714208883279182, "name": "거실 조명", "description": "거실 천장 조명",
+     "class": "philips_wiz_e29_color", "archived": 0, "roomId": 2},
+]
+
+MOCK_DEVICE_ROOM_MAP: list[dict[str, Any]] = [
+    {"deviceId": d["id"], "roomId": d["roomId"]} for d in MOCK_DEVICES
+]
+
+
+def _device_mock(_user_id: int | None, filter_: dict[str, Any]) -> list[dict[str, Any]]:
+    items = MOCK_DEVICES
+    if "roomId" in filter_:
+        items = [d for d in items if d["roomId"] == filter_["roomId"]]
+    if "class" in filter_:
+        items = [d for d in items if d["class"] == filter_["class"]]
+    if "archived" in filter_:
+        items = [d for d in items if d["archived"] == filter_["archived"]]
+    if "id" in filter_:
+        items = [d for d in items if d["id"] == filter_["id"]]
+    return items
+
+
+def _device_room_map_mock(_user_id: int | None, filter_: dict[str, Any]) -> list[dict[str, Any]]:
+    items = MOCK_DEVICE_ROOM_MAP
+    if "roomId" in filter_:
+        items = [m for m in items if m["roomId"] == filter_["roomId"]]
+    if "deviceId" in filter_:
+        items = [m for m in items if m["deviceId"] == filter_["deviceId"]]
+    return items
 
 
 TABLE_SPECS: dict[str, _TableSpec] = {
@@ -131,15 +173,35 @@ TABLE_SPECS: dict[str, _TableSpec] = {
     ),
     "gesture_set": _TableSpec(allowed={"id", "archived"}),
     "gesture_log": _TableSpec(allowed={"gestureSetId", "radarId", "deviceId", "classId", "from", "to"}),
-    "routine_task": _TableSpec(
+    "schedule_task": _TableSpec(
         required_any={"userId"},
-        allowed={"id", "userId", "category", "dayOfWeek", "done", "createdBy"},
+        allowed={
+            "id", "userId", "category", "scheduleKind", "dayOfWeek", "eventDate",
+            "from", "to", "done", "createdBy", "sourceInsightId",
+        },
     ),
+    "automation_rule": _TableSpec(
+        required_any={"userId"},
+        allowed={"id", "userId", "externalId", "enabled", "hasTrigger", "hasSchedule", "from", "to"},
+    ),
+    "alarm": _TableSpec(
+        required_any={"userId"},
+        allowed={"id", "userId", "enabled", "smartWake", "deviceId", "radarDeviceId", "from", "to"},
+    ),
+    # posture_stat/posture_report: db-query-api.md 가 "스펙 초안"이라 명시 — 최소 필드만.
+    "posture_stat": _TableSpec(required_any={"userId"}, allowed={"userId", "granularity", "from", "to"}),
+    "posture_report": _TableSpec(
+        required_any={"userId"},
+        allowed={"userId", "period", "periodStart", "from", "to"},
+    ),
+    "weekly_plan_report": _TableSpec(required_any={"userId"}, allowed={"userId", "periodStart", "from", "to"}),
     "notification": _TableSpec(required_any={"userId"}, allowed={"id", "userId", "type", "read", "from", "to"}),
     "chat_history": _TableSpec(required_any={"userId"}, allowed={"id", "userId", "from", "to"}),
     "insight": _TableSpec(
         required_any={"userId"},
-        allowed={"id", "userId", "domain", "period", "approved", "from", "to"},
+        allowed={
+            "id", "userId", "surface", "kind", "date", "actionable", "actionType", "approved", "from", "to",
+        },
     ),
 }
 
@@ -147,7 +209,13 @@ _MOCK_GENERATORS = {
     "sleep_session": _sleep_session_mock,
     "sleep_stat": _sleep_stat_mock,
     "sleep_report": _sleep_report_mock,
-    "routine_task": _routine_task_mock,
+    "schedule_task": _schedule_task_mock,
+}
+
+# device/device_room_map 목업은 filter 를 참조해야 해서 별도 딕셔너리로 분리.
+_FILTER_AWARE_MOCK_GENERATORS = {
+    "device": _device_mock,
+    "device_room_map": _device_room_map_mock,
 }
 
 
@@ -182,9 +250,15 @@ async def _run_one(query: DbQuery) -> DbQueryResultItem:
 
     limit = max(1, min(query.limit, MAX_LIMIT))
     client = CoreApiClient(base_url=get_settings().wavehome_agent_internal_base_url)
-    generator = _MOCK_GENERATORS.get(query.table)
     if client.is_mock:
-        items = generator(query.filter.get("userId")) if generator else []
+        filter_aware = _FILTER_AWARE_MOCK_GENERATORS.get(query.table)
+        generator = _MOCK_GENERATORS.get(query.table)
+        if filter_aware is not None:
+            items = filter_aware(query.filter.get("userId"), query.filter)
+        elif generator is not None:
+            items = generator(query.filter.get("userId"))
+        else:
+            items = []
     else:
         response = await client.post("/db/query", json={"queries": [query.model_dump()]})
         items = response.get("results", [{}])[0].get("items", [])
