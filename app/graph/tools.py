@@ -16,9 +16,11 @@ from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field
 
 from app.tools.db_query import TABLE_SPECS, DbQuery, DbQueryError, DbQueryResultItem, MAX_QUERIES, query_db
-from app.tools.devices_internal import control_device, list_devices
+from app.tools import devices_internal, rules_internal
+from app.tools.devices_internal import ExecMode, InvokeDeviceRequest, QueryDeviceRequest
 from app.tools.rag_search import RagTarget, rag_search
 from app.tools.routine_tasks_internal import get_routine_tasks, update_routine_task
+from app.tools.rules_internal import CreateRuleRequest, RuleAction, RuleSchedule
 
 
 class _QueryDbArgs(BaseModel):
@@ -119,34 +121,159 @@ def make_rag_search_tool(*, allowed_collections: Optional[set[str]] = None) -> B
 
 
 class _ListDevicesArgs(BaseModel):
-    room_id: int = Field(..., description="조회할 방 ID")
+    room_id: Optional[int] = Field(None, description="조회할 방 ID (생략 시 전체)")
 
 
 def make_list_devices_tool(user_id: int) -> BaseTool:
     @tool("list_devices", args_schema=_ListDevicesArgs)
-    async def _list_devices(room_id: int) -> str:
-        """방에 속한 가전 기기와 현재 제어값을 조회합니다."""
-        devices = await list_devices(room_id, user_id)
-        return _to_json(devices)
+    async def _list_devices(room_id: Optional[int] = None) -> str:
+        """방에 속한 가전 기기 요약(연결 상태 포함)을 조회합니다. 세부 action/query 는
+        get_device_capabilities 로 확인하세요."""
+        devices = await devices_internal.list_devices(user_id=user_id, room_id=room_id)
+        return _to_json([d.model_dump(by_alias=True) for d in devices])
 
     return _list_devices
 
 
+class _GetDeviceCapabilitiesArgs(BaseModel):
+    room_id: int = Field(..., description="장치가 속한 방 ID")
+    device: str = Field(..., description="장치 이름(부분 일치, 예: '거실 조명')")
+
+
+def make_get_device_capabilities_tool(user_id: int) -> BaseTool:
+    @tool("get_device_capabilities", args_schema=_GetDeviceCapabilitiesArgs)
+    async def _get_device_capabilities(room_id: int, device: str) -> str:
+        """장치 이름으로 실행 가능한 action/query 목록(paramsSchema 포함)을 조회합니다.
+        control_device/query_device 호출 전에 사용 가능한 이름을 확인할 때 씁니다."""
+        device_id = await devices_internal.resolve_device_id(room_id, device, user_id=user_id)
+        detail = await devices_internal.get_device(device_id)
+        return _to_json(detail.model_dump(by_alias=True))
+
+    return _get_device_capabilities
+
+
 class _ControlDeviceArgs(BaseModel):
-    device_id: int = Field(..., description="제어할 기기 ID (list_devices 결과의 id)")
-    control_id: int = Field(..., description="제어 항목 ID (list_devices 결과의 controls[].id)")
-    value: Any = Field(..., description="설정할 값")
-    reason: str = Field(..., description="이 제어를 실행하는 이유(사용자 요청 요약)")
+    room_id: int = Field(..., description="장치가 속한 방 ID")
+    device: str = Field(..., description="장치 이름(부분 일치, 예: '거실 조명')")
+    action: str = Field(..., description="실행할 action 이름 (get_device_capabilities 결과 참고)")
+    params: dict[str, Any] = Field(default_factory=dict, description="action params")
+    exec_mode: ExecMode = Field("once", description="once|repeat|toggle")
 
 
 def make_control_device_tool(user_id: int) -> BaseTool:
     @tool("control_device", args_schema=_ControlDeviceArgs)
-    async def _control_device(device_id: int, control_id: int, value: Any, reason: str) -> str:
-        """기기의 제어 항목(온도, 전원 등)을 실행합니다."""
-        result = await control_device(device_id, control_id, value, user_id, reason)
-        return _to_json(result)
+    async def _control_device(
+        room_id: int, device: str, action: str, params: Optional[dict[str, Any]] = None, exec_mode: ExecMode = "once"
+    ) -> str:
+        """장치의 action(전원, 밝기 등)을 즉시 실행합니다."""
+        device_id = await devices_internal.resolve_device_id(room_id, device, user_id=user_id)
+        result = await devices_internal.invoke_device_action(
+            device_id,
+            action,
+            InvokeDeviceRequest(params=params or {}, execMode=exec_mode, triggeredBy=f"agent:chat:{user_id}"),
+        )
+        return _to_json(result.model_dump())
 
     return _control_device
+
+
+class _QueryDeviceArgs(BaseModel):
+    room_id: int = Field(..., description="장치가 속한 방 ID")
+    device: str = Field(..., description="장치 이름(부분 일치)")
+    query: str = Field(..., description="조회할 query 이름 (get_device_capabilities 결과 참고)")
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+def make_query_device_tool(user_id: int) -> BaseTool:
+    @tool("query_device", args_schema=_QueryDeviceArgs)
+    async def _query_device(room_id: int, device: str, query: str, params: Optional[dict[str, Any]] = None) -> str:
+        """장치의 실시간 센서·상태 값 하나를 조회합니다(예: power, brightness, state)."""
+        device_id = await devices_internal.resolve_device_id(room_id, device, user_id=user_id)
+        result = await devices_internal.query_device(device_id, query, QueryDeviceRequest(params=params or {}))
+        return _to_json(result.model_dump())
+
+    return _query_device
+
+
+class _GetDeviceStateArgs(BaseModel):
+    room_id: int = Field(..., description="장치가 속한 방 ID")
+    device: str = Field(..., description="장치 이름(부분 일치)")
+
+
+def make_get_device_state_tool(user_id: int) -> BaseTool:
+    @tool("get_device_state", args_schema=_GetDeviceStateArgs)
+    async def _get_device_state(room_id: int, device: str) -> str:
+        """장치의 전체 런타임 상태 스냅샷을 조회합니다."""
+        device_id = await devices_internal.resolve_device_id(room_id, device, user_id=user_id)
+        state = await devices_internal.get_device_state(device_id)
+        return _to_json(state.model_dump())
+
+    return _get_device_state
+
+
+class _ScheduleDeviceActionArgs(BaseModel):
+    room_id: int = Field(..., description="장치가 속한 방 ID")
+    device: str = Field(..., description="장치 이름(부분 일치)")
+    action: str = Field(..., description="지연/반복 시 실행할 action 이름")
+    schedule: RuleSchedule = Field(..., description='예: {"repeat":"once","delayMinutes":30}')
+    params: dict[str, Any] = Field(default_factory=dict)
+    name: Optional[str] = Field(None, description="예약 이름(생략 시 자동 생성)")
+
+
+def make_schedule_device_action_tool(user_id: int) -> BaseTool:
+    @tool("schedule_device_action", args_schema=_ScheduleDeviceActionArgs)
+    async def _schedule_device_action(
+        room_id: int,
+        device: str,
+        action: str,
+        schedule: RuleSchedule,
+        params: Optional[dict[str, Any]] = None,
+        name: Optional[str] = None,
+    ) -> str:
+        """장치 동작을 지연 또는 반복 실행되도록 예약합니다."""
+        device_id = await devices_internal.resolve_device_id(room_id, device, user_id=user_id)
+        req = CreateRuleRequest(
+            name=name or f"{device} {action} 예약",
+            action=RuleAction(deviceId=device_id, name=action, params=params or {}),
+            schedule=schedule,
+        )
+        rule = await rules_internal.create_rule(req)
+        return _to_json(rule.model_dump())
+
+    return _schedule_device_action
+
+
+class _ListSchedulesArgs(BaseModel):
+    room_id: Optional[int] = Field(None, description="특정 방의 예약만 (생략 시 전체)")
+    enabled: Optional[bool] = Field(None, description="활성 예약만 필터링")
+
+
+def make_list_schedules_tool(user_id: int) -> BaseTool:
+    @tool("list_schedules", args_schema=_ListSchedulesArgs)
+    async def _list_schedules(room_id: Optional[int] = None, enabled: Optional[bool] = None) -> str:
+        """등록된 장치 예약(스케줄 룰) 목록을 조회합니다."""
+        rules = await rules_internal.list_rules(enabled=enabled, has_schedule=True)
+        if room_id is not None:
+            room_devices = await devices_internal.list_devices(user_id=user_id, room_id=room_id)
+            room_device_ids = {d.id for d in room_devices}
+            rules = [r for r in rules if r.action.deviceId in room_device_ids]
+        return _to_json([r.model_dump() for r in rules])
+
+    return _list_schedules
+
+
+class _CancelScheduleArgs(BaseModel):
+    rule_id: str = Field(..., description="list_schedules 결과의 id")
+
+
+def make_cancel_schedule_tool(user_id: int) -> BaseTool:
+    @tool("cancel_schedule", args_schema=_CancelScheduleArgs)
+    async def _cancel_schedule(rule_id: str) -> str:
+        """등록된 장치 예약을 취소합니다."""
+        await rules_internal.delete_rule(rule_id)
+        return _to_json({"ok": True, "ruleId": rule_id})
+
+    return _cancel_schedule
 
 
 class _GetRoutineTasksArgs(BaseModel):
@@ -206,7 +333,13 @@ def build_tools(user_id: int) -> list[BaseTool]:
         make_query_db_tool(user_id),
         make_rag_search_tool(),
         make_list_devices_tool(user_id),
+        make_get_device_capabilities_tool(user_id),
         make_control_device_tool(user_id),
+        make_query_device_tool(user_id),
+        make_get_device_state_tool(user_id),
+        make_schedule_device_action_tool(user_id),
+        make_list_schedules_tool(user_id),
+        make_cancel_schedule_tool(user_id),
         make_get_routine_tasks_tool(user_id),
         make_update_routine_task_tool(user_id),
     ]

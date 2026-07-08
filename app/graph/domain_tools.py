@@ -11,11 +11,17 @@ from langchain_core.tools import BaseTool
 from app.graph.domain_router import Domain
 from app.graph.tools import (
     build_tools,
+    make_cancel_schedule_tool,
     make_control_device_tool,
+    make_get_device_capabilities_tool,
+    make_get_device_state_tool,
     make_get_routine_tasks_tool,
     make_list_devices_tool,
+    make_list_schedules_tool,
     make_query_db_tool,
+    make_query_device_tool,
     make_rag_search_tool,
+    make_schedule_device_action_tool,
     make_update_routine_task_tool,
 )
 
@@ -24,7 +30,7 @@ DOMAIN_TABLES: dict[str, set[str]] = {
     "sleep": {"sleep_session", "sleep_stat", "sleep_report"},
     "power": {"power_energy", "power_report"},
     "posture": {"gesture_set", "gesture_log"},
-    "iot": {"schedule_task", "device"},
+    "iot": {"schedule_task", "device", "automation_rule"},
 }
 
 DOMAIN_RAG_COLLECTIONS: dict[str, set[str]] = {
@@ -46,7 +52,13 @@ def build_domain_tools(domain: Domain, user_id: int) -> list[BaseTool]:
         tools.append(make_rag_search_tool(allowed_collections=collections))
     if domain == "iot":
         tools.append(make_list_devices_tool(user_id))
+        tools.append(make_get_device_capabilities_tool(user_id))
         tools.append(make_control_device_tool(user_id))
+        tools.append(make_query_device_tool(user_id))
+        tools.append(make_get_device_state_tool(user_id))
+        tools.append(make_schedule_device_action_tool(user_id))
+        tools.append(make_list_schedules_tool(user_id))
+        tools.append(make_cancel_schedule_tool(user_id))
         tools.append(make_get_routine_tasks_tool(user_id))
         tools.append(make_update_routine_task_tool(user_id))
     return tools

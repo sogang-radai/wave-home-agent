@@ -10,7 +10,36 @@ logger = logging.getLogger(__name__)
 
 
 class ToolError(Exception):
-    """Raised when a call to the C++ backend fails after retrying."""
+    """Raised when a call to the C++ backend fails after retrying.
+
+    code/status_code/detail carry the backend's {error:{code,message,field?,detail?}}
+    body (device-tool-api.md/db-query-api.md/etc §공통 에러) when available, so callers
+    (app/tools/*_internal.py) can re-wrap them into a structured InternalApiError instead
+    of a bare string.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: Optional[str] = None,
+        status_code: Optional[int] = None,
+        detail: Optional[dict[str, Any]] = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.status_code = status_code
+        self.detail = detail
+
+
+def _parse_error_body(response: httpx.Response) -> Optional[dict[str, Any]]:
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    if isinstance(body, dict) and isinstance(body.get("error"), dict):
+        return body["error"]
+    return None
 
 
 class CoreApiClient:
@@ -29,13 +58,24 @@ class CoreApiClient:
     def is_mock(self) -> bool:
         return self.settings.wavehome_core_api_mock
 
-    async def get(self, path: str, params: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    async def get(self, path: str, params: Optional[dict[str, Any]] = None) -> Any:
         return await self._request("GET", path, params=params)
 
-    async def post(self, path: str, json: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    async def post(self, path: str, json: Optional[dict[str, Any]] = None) -> Any:
         return await self._request("POST", path, json=json)
 
-    async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+    async def put(self, path: str, json: Optional[dict[str, Any]] = None) -> Any:
+        return await self._request("PUT", path, json=json)
+
+    async def delete(self, path: str, params: Optional[dict[str, Any]] = None) -> Any:
+        return await self._request("DELETE", path, params=params)
+
+    async def patch(self, path: str, json: Optional[dict[str, Any]] = None) -> Any:
+        return await self._request("PATCH", path, json=json)
+
+    async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
+        # schedule-tasks-api.md/alarms-api.md 의 GET 은 봉투 없이 배열을 바로 반환하므로
+        # 반환 타입을 dict 로 좁히지 않는다(device-tool-api.md 의 {items,count} 봉투와 공존).
         last_error: Optional[Exception] = None
         for attempt in (1, 2):
             try:
@@ -43,6 +83,23 @@ class CoreApiClient:
                     response = await client.request(method, path, **kwargs)
                     response.raise_for_status()
                     return response.json()
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                parsed = _parse_error_body(exc.response)
+                if 400 <= exc.response.status_code < 500:
+                    # 4xx 는 재시도해도 결과가 바뀌지 않는다(DEVICE_OFFLINE/NOT_FOUND 등) — 즉시 raise.
+                    if parsed is not None:
+                        raise ToolError(
+                            parsed.get("message", f"{method} {path} failed"),
+                            code=parsed.get("code"),
+                            status_code=exc.response.status_code,
+                            detail=parsed.get("detail"),
+                        ) from exc
+                    raise ToolError(
+                        f"{method} {path} failed ({exc.response.status_code})",
+                        status_code=exc.response.status_code,
+                    ) from exc
+                logger.warning("Core API %s %s failed (attempt %d/2)", method, path, attempt, exc_info=True)
             except httpx.HTTPError as exc:
                 last_error = exc
                 logger.warning("Core API %s %s failed (attempt %d/2)", method, path, attempt, exc_info=True)
