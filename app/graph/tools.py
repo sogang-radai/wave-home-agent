@@ -16,7 +16,8 @@ from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field
 
 from app.tools.db_query import TABLE_SPECS, DbQuery, DbQueryError, DbQueryResultItem, MAX_QUERIES, query_db
-from app.tools import devices_internal, rules_internal, schedule_tasks_internal
+from app.tools import alarms_internal, devices_internal, rules_internal, schedule_tasks_internal
+from app.tools.alarms_internal import CreateAlarmRequest
 from app.tools.devices_internal import ExecMode, InvokeDeviceRequest, QueryDeviceRequest
 from app.tools.rag_search import RagTarget, rag_search
 from app.tools.rules_internal import CreateRuleRequest, RuleAction, RuleSchedule
@@ -394,6 +395,91 @@ def make_delete_schedule_task_tool(user_id: int) -> BaseTool:
     return _delete_schedule_task
 
 
+class _GetAlarmsArgs(BaseModel):
+    enabled: Optional[bool] = Field(None, description="활성 알람만 필터링")
+
+
+def make_get_alarms_tool(user_id: int) -> BaseTool:
+    @tool("get_alarms", args_schema=_GetAlarmsArgs)
+    async def _get_alarms(enabled: Optional[bool] = None) -> str:
+        """사용자의 알람 설정 목록을 조회합니다."""
+        alarms = await alarms_internal.get_alarms(user_id, enabled=enabled)
+        return _to_json([a.model_dump() for a in alarms])
+
+    return _get_alarms
+
+
+class _CreateAlarmArgs(BaseModel):
+    name: str = Field(..., description="알람 이름")
+    time_minute: int = Field(..., description="자정 기준 시각(분), 0~1439")
+    days_of_week: list[DayOfWeek] = Field(default_factory=list, description="빈 배열=1회성 알람")
+    smart_wake: bool = Field(False, description="레이더 기반 기상 맞춤 여부")
+
+
+def make_create_alarm_tool(user_id: int) -> BaseTool:
+    @tool("create_alarm", args_schema=_CreateAlarmArgs)
+    async def _create_alarm(
+        name: str, time_minute: int, days_of_week: Optional[list[DayOfWeek]] = None, smart_wake: bool = False
+    ) -> str:
+        """새 알람을 생성합니다. 조명/플러그/TTS 등 실행 방식(method)은 이후 update_alarm 으로 세부 설정하세요."""
+        alarm = await alarms_internal.create_alarm(
+            CreateAlarmRequest(
+                userId=user_id, name=name, timeMinute=time_minute,
+                daysOfWeek=days_of_week or [], smartWake=smart_wake,
+            )
+        )
+        return _to_json(alarm.model_dump())
+
+    return _create_alarm
+
+
+class _UpdateAlarmArgs(BaseModel):
+    alarm_id: int = Field(..., description="get_alarms 결과의 id")
+    name: Optional[str] = None
+    time_minute: Optional[int] = None
+    days_of_week: Optional[list[DayOfWeek]] = None
+    enabled: Optional[bool] = None
+
+
+def make_update_alarm_tool(user_id: int) -> BaseTool:
+    @tool("update_alarm", args_schema=_UpdateAlarmArgs)
+    async def _update_alarm(
+        alarm_id: int,
+        name: Optional[str] = None,
+        time_minute: Optional[int] = None,
+        days_of_week: Optional[list[DayOfWeek]] = None,
+        enabled: Optional[bool] = None,
+    ) -> str:
+        """알람의 이름/시각/요일/활성 여부를 변경합니다."""
+        fields: dict[str, Any] = {}
+        if name is not None:
+            fields["name"] = name
+        if time_minute is not None:
+            fields["timeMinute"] = time_minute
+        if days_of_week is not None:
+            fields["daysOfWeek"] = days_of_week
+        if enabled is not None:
+            fields["enabled"] = enabled
+        alarm = await alarms_internal.update_alarm(alarm_id, user_id, **fields)
+        return _to_json(alarm.model_dump())
+
+    return _update_alarm
+
+
+class _DeleteAlarmArgs(BaseModel):
+    alarm_id: int = Field(..., description="get_alarms 결과의 id")
+
+
+def make_delete_alarm_tool(user_id: int) -> BaseTool:
+    @tool("delete_alarm", args_schema=_DeleteAlarmArgs)
+    async def _delete_alarm(alarm_id: int) -> str:
+        """알람을 삭제합니다."""
+        deleted_id = await alarms_internal.delete_alarm(alarm_id, user_id)
+        return _to_json({"id": deleted_id})
+
+    return _delete_alarm
+
+
 def build_tools(user_id: int) -> list[BaseTool]:
     return [
         make_query_db_tool(user_id),
@@ -410,6 +496,10 @@ def build_tools(user_id: int) -> list[BaseTool]:
         make_create_schedule_task_tool(user_id),
         make_update_schedule_task_tool(user_id),
         make_delete_schedule_task_tool(user_id),
+        make_get_alarms_tool(user_id),
+        make_create_alarm_tool(user_id),
+        make_update_alarm_tool(user_id),
+        make_delete_alarm_tool(user_id),
     ]
 
 
