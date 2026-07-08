@@ -1,6 +1,7 @@
 import logging
 from typing import Optional, TypeVar
 
+from langchain_core.runnables import RunnableConfig
 from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel
 
@@ -86,6 +87,7 @@ async def invoke_structured(
     prompt: str,
     *,
     fallback: ModelT,
+    config: Optional[RunnableConfig] = None,
 ) -> ModelT:
     """Runs a structured-output LLM call with one retry, then falls back.
 
@@ -93,6 +95,11 @@ async def invoke_structured(
     "function_calling" mode only forces tool_choice for a hardcoded allowlist
     of model-name substrings that does not include gemini-3.1-flash-lite, so
     json_mode (Gemini's native response_schema) is used instead.
+
+    `config` is forwarded to the underlying call so callers running inside a
+    LangGraph node can tag it (e.g. app/graph/turn_graph.py tags its domain
+    classification call as background so it never gets treated as the
+    turn's visible answer in chat_runtime.py's SSE stream).
     """
     llm = get_llm()
     if llm is None:
@@ -101,7 +108,7 @@ async def invoke_structured(
     structured = llm.with_structured_output(schema, method="json_mode")
     for attempt in (1, 2):
         try:
-            result = await structured.ainvoke(prompt)
+            result = await structured.ainvoke(prompt, config=config)
             return result if isinstance(result, schema) else schema.model_validate(result)
         except Exception:
             logger.warning("LLM structured call failed (attempt %d/2)", attempt, exc_info=True)

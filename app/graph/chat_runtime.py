@@ -4,7 +4,7 @@ from typing import Any, AsyncIterator, Callable, Awaitable
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from app.config import get_settings
-from app.graph.turn_graph import build_chat_graph, scrub_disclaimer
+from app.graph.turn_graph import BACKGROUND_TAG, build_chat_graph, scrub_disclaimer
 from app.schemas.chat import ChatTurnRequest, ChatTurnResponse, ToolCallRecord
 from app.state.chat_state import ChatTurnState
 
@@ -83,11 +83,16 @@ async def stream_turn(body: ChatTurnRequest, disconnect: Callable[[], Awaitable[
             if await disconnect():
                 break
             kind = event["event"]
-            node = event.get("metadata", {}).get("langgraph_node")
+            # turn_graph.py tags every chat-model call that is never the
+            # turn's visible answer (gather's domain classification always;
+            # a domain node's own subgraph only when 2+ domains ran this
+            # turn) with BACKGROUND_TAG, so this is the only signal needed -
+            # no dependency on any node's literal name.
+            background = BACKGROUND_TAG in (event.get("tags") or [])
 
-            if kind == "on_chat_model_start" and node == "agent":
+            if kind == "on_chat_model_start" and not background:
                 current_answer = ""
-            elif kind == "on_chat_model_stream":
+            elif kind == "on_chat_model_stream" and not background:
                 chunk = event["data"]["chunk"]
                 text = _extract_text(chunk.content)
                 if text:

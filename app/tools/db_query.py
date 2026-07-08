@@ -106,7 +106,7 @@ def _routine_task_mock(user_id: int) -> list[dict[str, Any]]:
     ]
 
 
-_TABLE_SPECS: dict[str, _TableSpec] = {
+TABLE_SPECS: dict[str, _TableSpec] = {
     "user": _TableSpec(allowed={"id"}),
     "room": _TableSpec(allowed={"id", "userId"}),
     "room_user_map": _TableSpec(required_any={"roomId", "userId"}, allowed={"roomId", "userId"}),
@@ -152,7 +152,7 @@ _MOCK_GENERATORS = {
 
 
 async def _run_one(query: DbQuery) -> DbQueryResultItem:
-    spec = _TABLE_SPECS.get(query.table)
+    spec = TABLE_SPECS.get(query.table)
     if spec is None:
         return DbQueryResultItem(
             table=query.table,

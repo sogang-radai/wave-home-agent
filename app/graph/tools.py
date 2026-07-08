@@ -15,7 +15,7 @@ from typing import Any, Literal, Optional
 from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field
 
-from app.tools.db_query import DbQuery, DbQueryError, DbQueryResultItem, MAX_QUERIES, query_db
+from app.tools.db_query import TABLE_SPECS, DbQuery, DbQueryError, DbQueryResultItem, MAX_QUERIES, query_db
 from app.tools.devices_internal import control_device, list_devices
 from app.tools.rag_search import RagTarget, rag_search
 from app.tools.routine_tasks_internal import get_routine_tasks, update_routine_task
@@ -25,17 +25,48 @@ class _QueryDbArgs(BaseModel):
     queries: list[DbQuery] = Field(..., description="최대 10개의 배치 조회. api.md §2.1 참고.")
 
 
+_QUERY_DB_USAGE = """정확한 최신 값이 필요할 때 사용하세요: 특정 날짜의 수면 세션/통계, 오늘 일정, 정확한 점수/시간 등
+구조화된 raw row를 조회합니다. "어젯밤", "오늘", "정확히 몇 점" 같은 질문에 적합합니다."""
+
+
+def _describe_table(table: str) -> str:
+    """Renders one TABLE_SPECS entry (app/tools/db_query.py) as a line for the
+    query_db tool description, so the model sees the real per-table filter
+    rules up front instead of learning them from an INVALID_FILTER error on
+    its first guess."""
+    spec = TABLE_SPECS.get(table)
+    if spec is None:
+        return f"- {table}"
+    optional = sorted(spec.allowed - spec.required_any)
+    bits = []
+    if spec.required_any:
+        bits.append(f"{'|'.join(sorted(spec.required_any))} 중 최소 1개 필수")
+    if optional:
+        bits.append(f"선택 필터: {', '.join(optional)}")
+    line = f"- {table}: " + (" / ".join(bits) if bits else "필터 없음")
+    if "userId" in spec.allowed:
+        line += " (userId는 값과 무관하게 현재 사용자로 고정되지만, 키 자체는 반드시 포함해야 함)"
+    return line
+
+
+def _describe_tables(tables: set[str]) -> str:
+    return "\n".join(_describe_table(t) for t in sorted(tables) if t in TABLE_SPECS)
+
+
 def make_query_db_tool(user_id: int, *, allowed_tables: Optional[set[str]] = None) -> BaseTool:
     """allowed_tables restricts which `table` values a domain subgraph may query
     (app/graph/domain_tools.py). Disallowed tables come back as a per-query
     INVALID_FILTER error, same shape as db_query.py's own table validation,
-    instead of silently dropping or reaching the real backend."""
+    instead of silently dropping or reaching the real backend.
 
-    @tool("query_db", args_schema=_QueryDbArgs)
+    The tool description is generated from TABLE_SPECS (app/tools/db_query.py)
+    - the actual validation rules - rather than hand-written prose, so it
+    can't drift out of sync with them, and each domain only sees the rules
+    for tables it's actually allowed to query."""
+    tables = allowed_tables if allowed_tables is not None else set(TABLE_SPECS)
+    description = f"{_QUERY_DB_USAGE}\n\n테이블별 filter 규칙:\n{_describe_tables(tables)}"
+
     async def _query_db(queries: list[DbQuery]) -> str:
-        """정확한 최신 값이 필요할 때 사용하세요: 특정 날짜의 수면 세션/통계, 오늘 일정, 정확한 점수/시간 등
-        구조화된 raw row를 조회합니다. "어젯밤", "오늘", "정확히 몇 점" 같은 질문에 적합합니다.
-        userId 필터는 항상 현재 사용자로 고정됩니다."""
         for q in queries:
             if "userId" in q.filter:
                 q.filter["userId"] = user_id
@@ -59,7 +90,7 @@ def make_query_db_tool(user_id: int, *, allowed_tables: Optional[set[str]] = Non
             results.extend(await query_db([q]))
         return _to_json([r.model_dump() for r in results])
 
-    return _query_db
+    return tool("query_db", _query_db, description=description, args_schema=_QueryDbArgs)
 
 
 class _RagSearchArgs(BaseModel):
