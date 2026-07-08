@@ -13,16 +13,18 @@ from app.graph.tools import (
     build_tools,
     make_cancel_schedule_tool,
     make_control_device_tool,
+    make_create_schedule_task_tool,
+    make_delete_schedule_task_tool,
     make_get_device_capabilities_tool,
     make_get_device_state_tool,
-    make_get_routine_tasks_tool,
+    make_get_schedule_tasks_tool,
     make_list_devices_tool,
     make_list_schedules_tool,
     make_query_db_tool,
     make_query_device_tool,
     make_rag_search_tool,
     make_schedule_device_action_tool,
-    make_update_routine_task_tool,
+    make_update_schedule_task_tool,
 )
 
 
@@ -59,6 +61,8 @@ def build_domain_tools(domain: Domain, user_id: int) -> list[BaseTool]:
         tools.append(make_schedule_device_action_tool(user_id))
         tools.append(make_list_schedules_tool(user_id))
         tools.append(make_cancel_schedule_tool(user_id))
-        tools.append(make_get_routine_tasks_tool(user_id))
-        tools.append(make_update_routine_task_tool(user_id))
+        tools.append(make_get_schedule_tasks_tool(user_id))
+        tools.append(make_create_schedule_task_tool(user_id))
+        tools.append(make_update_schedule_task_tool(user_id))
+        tools.append(make_delete_schedule_task_tool(user_id))
     return tools

@@ -16,11 +16,11 @@ from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field
 
 from app.tools.db_query import TABLE_SPECS, DbQuery, DbQueryError, DbQueryResultItem, MAX_QUERIES, query_db
-from app.tools import devices_internal, rules_internal
+from app.tools import devices_internal, rules_internal, schedule_tasks_internal
 from app.tools.devices_internal import ExecMode, InvokeDeviceRequest, QueryDeviceRequest
 from app.tools.rag_search import RagTarget, rag_search
-from app.tools.routine_tasks_internal import get_routine_tasks, update_routine_task
 from app.tools.rules_internal import CreateRuleRequest, RuleAction, RuleSchedule
+from app.tools.schedule_tasks_internal import CreateScheduleTaskRequest, DayOfWeek
 
 
 class _QueryDbArgs(BaseModel):
@@ -276,56 +276,122 @@ def make_cancel_schedule_tool(user_id: int) -> BaseTool:
     return _cancel_schedule
 
 
-class _GetRoutineTasksArgs(BaseModel):
-    day_of_week: Optional[str] = Field(None, description="'mon'..'sun'. 반복 루틴 조회용")
-    date: Optional[str] = Field(None, description="'YYYY-MM-DD'. 해당 날짜의 1회성 일정도 함께 조회")
+class _GetScheduleTasksArgs(BaseModel):
+    day_of_week: Optional[str] = Field(None, description="'mon'..'sun'. weekly 일정 조회용")
+    event_date: Optional[str] = Field(None, description="'YYYY-MM-DD'. 해당 날짜의 once 일정 조회용")
+    schedule_kind: Optional[Literal["weekly", "once"]] = Field(None, description="생략 시 둘 다 조회")
+    done: Optional[bool] = Field(None, description="완료 여부 필터")
 
 
-def make_get_routine_tasks_tool(user_id: int) -> BaseTool:
-    @tool("get_routine_tasks", args_schema=_GetRoutineTasksArgs)
-    async def _get_routine_tasks(day_of_week: Optional[str] = None, date: Optional[str] = None) -> str:
-        """사용자의 반복 루틴과 1회성 일정을 조회합니다."""
-        tasks = await get_routine_tasks(user_id, day_of_week, date)
-        return _to_json(tasks)
+def make_get_schedule_tasks_tool(user_id: int) -> BaseTool:
+    @tool("get_schedule_tasks", args_schema=_GetScheduleTasksArgs)
+    async def _get_schedule_tasks(
+        day_of_week: Optional[str] = None,
+        event_date: Optional[str] = None,
+        schedule_kind: Optional[Literal["weekly", "once"]] = None,
+        done: Optional[bool] = None,
+    ) -> str:
+        """사용자의 주간 반복 일정과 1회성 일정을 조회합니다."""
+        tasks = await schedule_tasks_internal.get_schedule_tasks(
+            user_id, day_of_week=day_of_week, event_date=event_date, schedule_kind=schedule_kind, done=done
+        )
+        return _to_json([t.model_dump() for t in tasks])
 
-    return _get_routine_tasks
+    return _get_schedule_tasks
 
 
-class _UpdateRoutineTaskArgs(BaseModel):
-    task_id: int = Field(..., description="get_routine_tasks 결과의 id")
-    type: Literal["routine", "event"] = Field(..., description="get_routine_tasks 결과의 type과 동일해야 함")
-    reason: str = Field(..., description="이 변경을 실행하는 이유(사용자 요청 요약)")
-    day_of_week: Optional[str] = Field(None, description="type='routine'일 때 변경할 요일")
-    date: Optional[str] = Field(None, description="type='event'일 때 변경할 날짜")
+class _CreateScheduleTaskArgs(BaseModel):
+    title: str = Field(..., description="일정 제목")
+    category: str = Field(..., description="예: posture, sleep, diet, mental, exercise")
+    schedule_kind: Literal["weekly", "once"] = Field("weekly", description="weekly=매주 반복, once=1회성")
+    day_of_week: DayOfWeek = Field(..., description="'mon'..'sun'")
+    event_date: Optional[str] = Field(None, description="scheduleKind='once' 일 때 'YYYY-MM-DD'")
     start_minute: Optional[int] = Field(None, description="자정 기준 시작 분(0~1440)")
     end_minute: Optional[int] = Field(None, description="자정 기준 종료 분(0~1440)")
 
 
-def make_update_routine_task_tool(user_id: int) -> BaseTool:
-    @tool("update_routine_task", args_schema=_UpdateRoutineTaskArgs)
-    async def _update_routine_task(
-        task_id: int,
-        type: Literal["routine", "event"],
-        reason: str,
-        day_of_week: Optional[str] = None,
-        date: Optional[str] = None,
+def make_create_schedule_task_tool(user_id: int) -> BaseTool:
+    @tool("create_schedule_task", args_schema=_CreateScheduleTaskArgs)
+    async def _create_schedule_task(
+        title: str,
+        category: str,
+        day_of_week: DayOfWeek,
+        schedule_kind: Literal["weekly", "once"] = "weekly",
+        event_date: Optional[str] = None,
         start_minute: Optional[int] = None,
         end_minute: Optional[int] = None,
     ) -> str:
-        """반복 루틴 또는 1회성 일정의 요일/날짜/시간을 변경합니다."""
+        """새로운 반복 일정 또는 1회성 일정을 추가합니다(createdBy=agent 로 저장됨)."""
+        task = await schedule_tasks_internal.create_schedule_task(
+            CreateScheduleTaskRequest(
+                userId=user_id,
+                title=title,
+                category=category,
+                scheduleKind=schedule_kind,
+                dayOfWeek=day_of_week,
+                eventDate=event_date,
+                startMinute=start_minute,
+                endMinute=end_minute,
+            )
+        )
+        return _to_json(task.model_dump())
+
+    return _create_schedule_task
+
+
+class _UpdateScheduleTaskArgs(BaseModel):
+    task_id: int = Field(..., description="get_schedule_tasks 결과의 id")
+    title: Optional[str] = None
+    day_of_week: Optional[DayOfWeek] = None
+    event_date: Optional[str] = None
+    start_minute: Optional[int] = None
+    end_minute: Optional[int] = None
+    done: Optional[bool] = Field(None, description="완료 처리")
+
+
+def make_update_schedule_task_tool(user_id: int) -> BaseTool:
+    @tool("update_schedule_task", args_schema=_UpdateScheduleTaskArgs)
+    async def _update_schedule_task(
+        task_id: int,
+        title: Optional[str] = None,
+        day_of_week: Optional[DayOfWeek] = None,
+        event_date: Optional[str] = None,
+        start_minute: Optional[int] = None,
+        end_minute: Optional[int] = None,
+        done: Optional[bool] = None,
+    ) -> str:
+        """기존 일정의 제목/요일/날짜/시간/완료 여부를 변경합니다."""
         fields: dict[str, Any] = {}
+        if title is not None:
+            fields["title"] = title
         if day_of_week is not None:
             fields["dayOfWeek"] = day_of_week
-        if date is not None:
-            fields["date"] = date
+        if event_date is not None:
+            fields["eventDate"] = event_date
         if start_minute is not None:
             fields["startMinute"] = start_minute
         if end_minute is not None:
             fields["endMinute"] = end_minute
-        result = await update_routine_task(task_id, type, reason, **fields)
-        return _to_json(result)
+        if done is not None:
+            fields["done"] = done
+        task = await schedule_tasks_internal.update_schedule_task(task_id, user_id, **fields)
+        return _to_json(task.model_dump())
 
-    return _update_routine_task
+    return _update_schedule_task
+
+
+class _DeleteScheduleTaskArgs(BaseModel):
+    task_id: int = Field(..., description="get_schedule_tasks 결과의 id")
+
+
+def make_delete_schedule_task_tool(user_id: int) -> BaseTool:
+    @tool("delete_schedule_task", args_schema=_DeleteScheduleTaskArgs)
+    async def _delete_schedule_task(task_id: int) -> str:
+        """일정을 삭제합니다."""
+        deleted_id = await schedule_tasks_internal.delete_schedule_task(task_id, user_id)
+        return _to_json({"id": deleted_id})
+
+    return _delete_schedule_task
 
 
 def build_tools(user_id: int) -> list[BaseTool]:
@@ -340,8 +406,10 @@ def build_tools(user_id: int) -> list[BaseTool]:
         make_schedule_device_action_tool(user_id),
         make_list_schedules_tool(user_id),
         make_cancel_schedule_tool(user_id),
-        make_get_routine_tasks_tool(user_id),
-        make_update_routine_task_tool(user_id),
+        make_get_schedule_tasks_tool(user_id),
+        make_create_schedule_task_tool(user_id),
+        make_update_schedule_task_tool(user_id),
+        make_delete_schedule_task_tool(user_id),
     ]
 
 
