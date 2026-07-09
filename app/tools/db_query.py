@@ -119,6 +119,10 @@ MOCK_DEVICES: list[dict[str, Any]] = [
      "class": "tuya_ep2h", "archived": 0, "roomId": 2},
     {"id": 7714208883279182, "name": "거실 조명", "description": "거실 천장 조명",
      "class": "philips_wiz_e29_color", "archived": 0, "roomId": 2},
+    {"id": 7714208883279183, "name": "현관 카메라", "description": "Reolink E1 Pro",
+     "class": "reolink_e1_pro", "archived": 0, "roomId": 3},
+    {"id": 7714208883279184, "name": "안방 카메라", "description": "DroidCam",
+     "class": "droid_cam", "archived": 0, "roomId": 4},
 ]
 
 MOCK_DEVICE_ROOM_MAP: list[dict[str, Any]] = [

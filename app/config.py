@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     # that contract. Kept separate so upgrading one doesn't move the other's base URL.
     wavehome_agent_internal_base_url: str = "http://127.0.0.1:8500/internal/v1"
 
+    # device-tool-api.md의 카메라 stream GET/PUT 응답 url은 실 백엔드에서만 유의미(go2rtc가
+    # 내려주는 WebRTC/MJPEG URI). mock 모드에서 스트리밍 중일 때 채워 넣을 placeholder만 여기서
+    # 설정으로 뺀다 — 로컬에서 실제 재생 가능한 URL로 임시로 바꿔보고 싶을 때 코드 수정 없이
+    # .env만 바꾸면 되도록.
+    mock_camera_stream_url: str = "mock://stream"
+
     # Ollama server (OpenAI-compatible /v1/*) that docs/api.md §1.3's /llm/v1/* proxy forwards to.
     # Serves both chat models (gemma*) and the nomic-embed-text embedding model. Real address is
     # set via .env only (not committed) — this default is just for local dev with a local Ollama.

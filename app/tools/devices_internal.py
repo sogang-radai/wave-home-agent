@@ -107,6 +107,36 @@ class DeviceStateSnapshot(BaseModel):
     state: dict[str, Any] = Field(default_factory=dict)
 
 
+# ── 카메라 PTZ / 스트림 / TTS (device-tool-api.md §카메라 PTZ / 스트림 / TTS) ─────
+# ptz/{move,stop,zoom} 과 tts 의 성공 응답 바디는 문서에 예시가 없다(요청 바디만
+# 명시됨) — 백엔드가 실제로 뭘 돌려주는지 확정되면 아래 dict[str, Any] 를 구체
+# pydantic 모델로 좁힌다. ptz/capabilities 도 마찬가지라 원본 dict 를 그대로 반환한다.
+
+
+class PtzMoveRequest(BaseModel):
+    pan: float = Field(ge=-1, le=1)
+    tilt: float = Field(ge=-1, le=1)
+
+
+class PtzZoomRequest(BaseModel):
+    delta: float
+
+
+class StreamState(BaseModel):
+    status: Literal["idle", "streaming"]
+    url: Optional[str] = None
+
+
+class StreamSetRequest(BaseModel):
+    streaming: bool
+
+
+class SendTtsRequest(BaseModel):
+    text: str
+    speakerId: Optional[int] = None
+    speed: Optional[float] = None
+
+
 def _client() -> CoreApiClient:
     return CoreApiClient(base_url=get_settings().wavehome_agent_internal_base_url)
 
@@ -166,11 +196,41 @@ _MOCK_CAPABILITIES: dict[str, DeviceClassCapabilities] = {
             "triggerKinds": ["device_state"],
         }
     ),
+    "reolink_e1_pro": DeviceClassCapabilities(
+        **{
+            "class": "reolink_e1_pro",
+            "label": "실내 카메라 (Reolink E1 Pro)",
+            "queries": [
+                {"name": "stream", "description": "RTSP URI (main/sub, go2rtc)"},
+                {"name": "status", "description": "{streaming, micLevel}"},
+            ],
+            "ptz": True,
+        }
+    ),
+    "droid_cam": DeviceClassCapabilities(
+        **{
+            "class": "droid_cam",
+            "label": "실내 카메라 (DroidCam)",
+            "queries": [
+                {"name": "capabilities", "description": "snapshot/stream/mic 플래그"},
+                {"name": "session", "description": "HTTP 엔드포인트"},
+                {"name": "status", "description": "연결·스트리밍 상태"},
+                {"name": "stream", "description": "MJPEG source URI"},
+            ],
+            "ptz": False,
+        }
+    ),
 }
 
 _MOCK_STATE: dict[int, dict[str, Any]] = {
     MOCK_DEVICES[0]["id"]: {"switch": True, "voltage": 234.6, "current": 118.2, "power": 27.7, "energy": 12.4},
     MOCK_DEVICES[1]["id"]: {"on": True, "brightness": 70, "color": {"r": 255, "g": 196, "b": 120}},
+}
+
+# 카메라는 스위치/조명과 다른 축(스트리밍 on/off, pan/tilt 위치)이라 별도 mock 상태로 분리.
+_MOCK_CAMERA_STATE: dict[int, dict[str, Any]] = {
+    MOCK_DEVICES[2]["id"]: {"streaming": False, "pan": 0.0, "tilt": 0.0, "zoom": 0.0},
+    MOCK_DEVICES[3]["id"]: {"streaming": False, "pan": 0.0, "tilt": 0.0, "zoom": 0.0},
 }
 
 
@@ -343,6 +403,98 @@ def _apply_mock_action(state: dict[str, Any], action_name: str, params: dict[str
         state["brightness"] = params["value"]
     elif action_name == "color" and {"r", "g", "b"} <= params.keys():
         state["color"] = {"r": params["r"], "g": params["g"], "b": params["b"]}
+
+
+async def get_ptz_capabilities(device_id: int) -> dict[str, Any]:
+    """reolink_e1_pro 전용(device-tool-api.md:818). 응답 스키마 미문서화 — 원본 dict 반환."""
+    client = _client()
+    if client.is_mock:
+        return {"pan": True, "tilt": True, "zoom": True}
+
+    try:
+        return await client.get(f"/devices/{device_id_to_hex(device_id)}/ptz/capabilities")
+    except ToolError as exc:
+        _raise_from_tool_error(exc)
+
+
+async def ptz_move(device_id: int, req: PtzMoveRequest) -> dict[str, Any]:
+    client = _client()
+    if client.is_mock:
+        state = _MOCK_CAMERA_STATE.setdefault(device_id, {"streaming": False, "pan": 0.0, "tilt": 0.0, "zoom": 0.0})
+        state["pan"], state["tilt"] = req.pan, req.tilt
+        return {"ok": True}
+
+    try:
+        return await client.post(f"/devices/{device_id_to_hex(device_id)}/ptz/move", json=req.model_dump())
+    except ToolError as exc:
+        _raise_from_tool_error(exc)
+
+
+async def ptz_stop(device_id: int) -> dict[str, Any]:
+    client = _client()
+    if client.is_mock:
+        return {"ok": True}
+
+    try:
+        return await client.post(f"/devices/{device_id_to_hex(device_id)}/ptz/stop", json={})
+    except ToolError as exc:
+        _raise_from_tool_error(exc)
+
+
+async def ptz_zoom(device_id: int, req: PtzZoomRequest) -> dict[str, Any]:
+    client = _client()
+    if client.is_mock:
+        state = _MOCK_CAMERA_STATE.setdefault(device_id, {"streaming": False, "pan": 0.0, "tilt": 0.0, "zoom": 0.0})
+        state["zoom"] = state.get("zoom", 0.0) + req.delta
+        return {"ok": True}
+
+    try:
+        return await client.post(f"/devices/{device_id_to_hex(device_id)}/ptz/zoom", json=req.model_dump())
+    except ToolError as exc:
+        _raise_from_tool_error(exc)
+
+
+async def get_stream(device_id: int) -> StreamState:
+    client = _client()
+    if client.is_mock:
+        state = _MOCK_CAMERA_STATE.setdefault(device_id, {"streaming": False, "pan": 0.0, "tilt": 0.0, "zoom": 0.0})
+        streaming = state["streaming"]
+        url = get_settings().mock_camera_stream_url if streaming else None
+        return StreamState(status="streaming" if streaming else "idle", url=url)
+
+    try:
+        response = await client.get(f"/devices/{device_id_to_hex(device_id)}/stream")
+    except ToolError as exc:
+        _raise_from_tool_error(exc)
+    return StreamState.model_validate(response)
+
+
+async def set_stream(device_id: int, req: StreamSetRequest) -> StreamState:
+    client = _client()
+    if client.is_mock:
+        state = _MOCK_CAMERA_STATE.setdefault(device_id, {"streaming": False, "pan": 0.0, "tilt": 0.0, "zoom": 0.0})
+        state["streaming"] = req.streaming
+        url = get_settings().mock_camera_stream_url if req.streaming else None
+        return StreamState(status="streaming" if req.streaming else "idle", url=url)
+
+    try:
+        response = await client.put(f"/devices/{device_id_to_hex(device_id)}/stream", json=req.model_dump())
+    except ToolError as exc:
+        _raise_from_tool_error(exc)
+    return StreamState.model_validate(response)
+
+
+async def send_tts(device_id: int, req: SendTtsRequest) -> dict[str, Any]:
+    """성공 응답 바디 미문서화(device-tool-api.md:833) — 원본 dict 반환.
+    백엔드 TTS 엔진·스트림 경로 미구축 시 503 TTS_UNAVAILABLE(ToolError 로 전파)."""
+    client = _client()
+    if client.is_mock:
+        return {"ok": True}
+
+    try:
+        return await client.post(f"/devices/{device_id_to_hex(device_id)}/tts", json=req.model_dump(exclude_none=True))
+    except ToolError as exc:
+        _raise_from_tool_error(exc)
 
 
 async def resolve_device_id(room_id: int, name: str, *, user_id: Optional[int] = None) -> int:
