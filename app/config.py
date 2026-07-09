@@ -8,9 +8,15 @@ class Settings(BaseSettings):
     app_name: str = "WaveHome Agent Server"
     app_env: str = "local"
 
+    llm_provider: str = "gemini"  # "gemini" | "openai"
+
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.1-flash-lite"
     gemini_timeout_ms: int = 20000
+
+    openai_api_key: str = ""
+    openai_model: str = "gpt-5.4-nano"
+    openai_timeout_ms: int = 20000
 
     wavehome_core_api_base_url: str = "http://127.0.0.1:9000"
     wavehome_core_api_timeout_ms: int = 5000

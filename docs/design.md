@@ -101,16 +101,23 @@ Frontend          : 화면 표시, 사용자 입력
 
 ## 실행 관련 참고
 
-`langchain-google-genai>=3.1`(Gemini 3 tool-calling의 thought_signature 버그 수정 버전)이 **Python 3.10 이상**을 요구하므로, `.python-version`에 `3.12.10`을 고정해 두었습니다.
+`langchain-google-genai>=3.1`(Gemini 3 tool-calling의 thought_signature 버그 수정 버전)이 **Python 3.10 이상**을 요구하므로, `.python-version`에 `3.12.10`을 고정해 두었습니다. 이 핀은 `LLM_PROVIDER=gemini`일 때만 관련 있으며, `openai`로 전환해도 그대로 둬도 무방합니다.
 
 포트는 `docs/api.md`의 기본 경로 예시와 맞춘 8501을 사용합니다.
 
 ## 환경 변수 상세
 
 ```env
+# "gemini" 또는 "openai" - app/services/llm.py의 get_llm()이 이 값에 따라 클라이언트를 선택.
+LLM_PROVIDER=gemini
+
 GEMINI_API_KEY=
 GEMINI_MODEL=gemini-3.1-flash-lite
 GEMINI_TIMEOUT_MS=20000
+
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-5.4-nano
+OPENAI_TIMEOUT_MS=20000
 
 # sleep_agent/posture_agent/lifestyle_agent(app/tools/{sleep,posture,schedule}_api.py)가 사용.
 # observation_api.py는 카메라 이벤트 백엔드 테이블이 아직 없어 이 값을 읽지 않고 항상 mock만 반환합니다.
@@ -176,7 +183,7 @@ app/
     sleep_analysis.py    # POST /sleep/v1/summaries|reports, GET /sleep/v1/jobs/{jobId}
     power_analysis.py    # POST /power/v1/reports, GET /power/v1/jobs/{jobId}
   services/
-    llm.py          # get_llm/invoke_structured/invoke_text (Gemini)
+    llm.py          # get_llm/invoke_structured/invoke_text (Gemini/OpenAI, LLM_PROVIDER로 전환)
     prompts.py       # load_prompt(domain, name, **vars)
     jobs.py           # §1.4 job store (in-memory, TTL 24h, dedup by target key)
     embeddings.py     # §1.4 Ollama 임베딩 호출 래퍼

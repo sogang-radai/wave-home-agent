@@ -9,6 +9,7 @@ on_tool_error events, which app/graph/chat_runtime.py listens for) without
 fighting an external abstraction.
 """
 
+import logging
 from typing import Any, Callable
 
 from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
@@ -19,7 +20,16 @@ from langgraph.graph.state import CompiledStateGraph
 from app.services.llm import get_llm
 
 
+logger = logging.getLogger(__name__)
+
 NO_LLM_FALLBACK_TEXT = "현재 AI 모델을 사용할 수 없어 제한된 답변만 제공할 수 있습니다."
+
+
+def _preview(value: Any, limit: int = 500) -> str:
+    """Renders a tool arg/result for a single-line log entry, capped so a
+    large tool result (e.g. a device or rule list) doesn't blow up the log."""
+    text = str(value)
+    return text if len(text) <= limit else f"{text[:limit]}...(truncated)"
 
 
 def build_tool_loop(
@@ -51,16 +61,20 @@ def build_tool_loop(
         for call in last.tool_calls:
             tool_fn = tool_by_name.get(call["name"])
             if tool_fn is None:
+                logger.warning("tool call: name=%s args=%s -> unknown tool", call["name"], call["args"])
                 results.append(
                     ToolMessage(content=f"알 수 없는 tool입니다: {call['name']}", tool_call_id=call["id"], status="error")
                 )
                 continue
+            logger.info("tool call: name=%s args=%s", call["name"], call["args"])
             try:
                 content = await tool_fn.ainvoke(call["args"])
+                logger.info("tool call ok: name=%s result=%s", call["name"], _preview(content))
                 results.append(
                     ToolMessage(content=str(content), tool_call_id=call["id"], name=call["name"], status="success")
                 )
             except Exception as exc:  # tool errors must not crash the turn (api.md §2.1)
+                logger.warning("tool call failed: name=%s args=%s error=%s", call["name"], call["args"], exc)
                 results.append(
                     ToolMessage(content=str(exc), tool_call_id=call["id"], name=call["name"], status="error")
                 )

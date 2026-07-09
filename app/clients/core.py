@@ -42,6 +42,13 @@ def _parse_error_body(response: httpx.Response) -> Optional[dict[str, Any]]:
     return None
 
 
+def _preview(value: Any, limit: int = 500) -> str:
+    """Renders a request/response payload for a single-line log entry, capped
+    so a large device/rule list doesn't blow up the log."""
+    text = str(value)
+    return text if len(text) <= limit else f"{text[:limit]}...(truncated)"
+
+
 class CoreApiClient:
     """Generic transport for the C++ server that owns SQLite and device/schedule state.
 
@@ -78,13 +85,26 @@ class CoreApiClient:
         # 반환 타입을 dict 로 좁히지 않는다(device-tool-api.md 의 {items,count} 봉투와 공존).
         last_error: Optional[Exception] = None
         for attempt in (1, 2):
+            logger.info(
+                "core api -> %s %s%s params=%s json=%s (attempt %d/2)",
+                method, self.base_url, path, kwargs.get("params"), _preview(kwargs.get("json")), attempt,
+            )
             try:
                 async with httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout) as client:
                     response = await client.request(method, path, **kwargs)
                     response.raise_for_status()
-                    return response.json()
+                    body = response.json()
+                    logger.info(
+                        "core api <- %s %s%s %d body=%s",
+                        method, self.base_url, path, response.status_code, _preview(body),
+                    )
+                    return body
             except httpx.HTTPStatusError as exc:
                 last_error = exc
+                logger.warning(
+                    "core api <- %s %s%s %d body=%s",
+                    method, self.base_url, path, exc.response.status_code, _preview(exc.response.text),
+                )
                 parsed = _parse_error_body(exc.response)
                 if 400 <= exc.response.status_code < 500:
                     # 4xx 는 재시도해도 결과가 바뀌지 않는다(DEVICE_OFFLINE/NOT_FOUND 등) — 즉시 raise.
@@ -99,7 +119,6 @@ class CoreApiClient:
                         f"{method} {path} failed ({exc.response.status_code})",
                         status_code=exc.response.status_code,
                     ) from exc
-                logger.warning("Core API %s %s failed (attempt %d/2)", method, path, attempt, exc_info=True)
             except httpx.HTTPError as exc:
                 last_error = exc
                 logger.warning("Core API %s %s failed (attempt %d/2)", method, path, attempt, exc_info=True)
