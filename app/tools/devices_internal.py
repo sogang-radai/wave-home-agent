@@ -346,6 +346,7 @@ _MOCK_STATE: dict[int, dict[str, Any]] = {
         "env": {"lux": 180, "temperature": 24.5, "humidity": 45.0},
         "last_ir": None,
     },
+    MOCK_DEVICES[7]["id"]: {"switch": True, "voltage": 231.8, "current": 96.4, "power": 21.9, "energy": 8.1},
 }
 
 # 카메라는 스위치/조명과 다른 축(스트리밍 on/off, pan/tilt 위치)이라 별도 mock 상태로 분리.
