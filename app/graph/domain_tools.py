@@ -49,7 +49,7 @@ DOMAIN_TABLES: dict[str, set[str]] = {
     "sleep": {"sleep_session", "sleep_stat", "sleep_report"},
     "power": {"power_energy", "power_report"},
     "posture": {"gesture_set", "gesture_log"},
-    "iot": {"schedule_task", "device", "automation_rule", "alarm"},
+    "iot": {"schedule_task", "device", "automation_rule", "alarm", "room", "room_user_map"},
 }
 
 DOMAIN_RAG_COLLECTIONS: dict[str, set[str]] = {

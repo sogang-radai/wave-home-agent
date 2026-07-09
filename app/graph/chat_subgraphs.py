@@ -40,8 +40,12 @@ _DOMAIN_INTRO: dict[Domain, str] = {
         "send_camera_tts(카메라 스피커로 음성 안내 방송), "
         "schedule_device_action/list_schedules/cancel_schedule(예약), "
         "get_schedule_tasks/create_schedule_task/update_schedule_task/delete_schedule_task(일정), "
-        "get_alarms/create_alarm/update_alarm/delete_alarm(알람). "
-        "장치는 이름(부분일치)+roomId 로 지정하세요, deviceId 를 직접 요구하지 마세요."
+        "get_alarms/create_alarm/update_alarm/delete_alarm(알람), "
+        "query_db(schedule_task/device/automation_rule/alarm/room/room_user_map만 조회 가능). "
+        "장치는 이름(부분일치)+roomId 로 지정하세요, deviceId 를 직접 요구하지 마세요. "
+        "'내 방'처럼 사용자가 방을 특정하지 않으면, query_db(room_user_map, filter:{userId}) 또는 "
+        "query_db(room, filter:{userId})로 사용자가 속한 방을 먼저 확인한 뒤 그 roomId를 쓰세요. "
+        "그래도 방이 여러 개면 사용자에게 되물으세요."
     ),
     "general": (
         "당신은 WaveHome의 건강 및 생활 어시스턴트입니다.\n"

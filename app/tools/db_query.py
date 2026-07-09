@@ -135,6 +135,21 @@ MOCK_DEVICE_ROOM_MAP: list[dict[str, Any]] = [
     {"deviceId": d["id"], "roomId": d["roomId"]} for d in MOCK_DEVICES
 ]
 
+MOCK_ROOMS: list[dict[str, Any]] = [
+    {"id": 2, "name": "거실", "description": "거실"},
+    {"id": 3, "name": "현관", "description": "현관"},
+    {"id": 4, "name": "안방", "description": "안방"},
+    {"id": 5, "name": "서재", "description": "서재"},
+    {"id": 6, "name": "침실", "description": "침실"},
+]
+
+# db-schema.md: room_user_map 은 N:M(구성원별 개인 방). 공용 공간(거실 등)은 매핑 없이 둔다 —
+# "내 방"처럼 방을 특정하지 않은 요청을 room_user_map 으로 해석하는 흐름(chat_subgraphs.py)의
+# mock 데모용. user 1 = 침실(6) 소유자.
+MOCK_ROOM_USER_MAP: list[dict[str, Any]] = [
+    {"roomId": 6, "userId": 1},
+]
+
 
 def _device_mock(_user_id: int | None, filter_: dict[str, Any]) -> list[dict[str, Any]]:
     items = MOCK_DEVICES
@@ -155,6 +170,25 @@ def _device_room_map_mock(_user_id: int | None, filter_: dict[str, Any]) -> list
         items = [m for m in items if m["roomId"] == filter_["roomId"]]
     if "deviceId" in filter_:
         items = [m for m in items if m["deviceId"] == filter_["deviceId"]]
+    return items
+
+
+def _room_mock(_user_id: int | None, filter_: dict[str, Any]) -> list[dict[str, Any]]:
+    items = MOCK_ROOMS
+    if "id" in filter_:
+        items = [r for r in items if r["id"] == filter_["id"]]
+    if "userId" in filter_:
+        owned = {m["roomId"] for m in MOCK_ROOM_USER_MAP if m["userId"] == filter_["userId"]}
+        items = [r for r in items if r["id"] in owned]
+    return items
+
+
+def _room_user_map_mock(_user_id: int | None, filter_: dict[str, Any]) -> list[dict[str, Any]]:
+    items = MOCK_ROOM_USER_MAP
+    if "roomId" in filter_:
+        items = [m for m in items if m["roomId"] == filter_["roomId"]]
+    if "userId" in filter_:
+        items = [m for m in items if m["userId"] == filter_["userId"]]
     return items
 
 
@@ -222,10 +256,12 @@ _MOCK_GENERATORS = {
     "schedule_task": _schedule_task_mock,
 }
 
-# device/device_room_map 목업은 filter 를 참조해야 해서 별도 딕셔너리로 분리.
+# device/device_room_map/room/room_user_map 목업은 filter 를 참조해야 해서 별도 딕셔너리로 분리.
 _FILTER_AWARE_MOCK_GENERATORS = {
     "device": _device_mock,
     "device_room_map": _device_room_map_mock,
+    "room": _room_mock,
+    "room_user_map": _room_user_map_mock,
 }
 
 
