@@ -220,11 +220,132 @@ _MOCK_CAPABILITIES: dict[str, DeviceClassCapabilities] = {
             "ptz": False,
         }
     ),
+    "philips_wiz_e29_white": DeviceClassCapabilities(
+        **{
+            "class": "philips_wiz_e29_white",
+            "label": "WiZ 화이트 조명",
+            "actions": [
+                {"name": "on", "description": "전원 켜기", "attributes": ["Stateful"]},
+                {"name": "off", "description": "전원 끄기", "attributes": ["Stateful"]},
+                {"name": "toggle", "description": "전원 토글", "attributes": ["Toggle", "Stateful"]},
+                {"name": "brightness", "description": "밝기 % (10..100)", "attributes": ["Stateful"]},
+                {"name": "temperature", "description": "색온도 K (2200..6500)", "attributes": ["Stateful"]},
+            ],
+            "queries": [
+                {"name": "capabilities", "description": "tunable_white/temp_min_k/temp_max_k 플래그"},
+                {"name": "state", "description": "{on, brightness}"},
+                {"name": "brightness", "description": "{value, unit}"},
+                {"name": "temperature", "description": "{value, unit: K}"},
+                {"name": "status", "description": "pilot 전체"},
+            ],
+            "triggerKinds": ["device_state"],
+        }
+    ),
+    "samsung_g7": DeviceClassCapabilities(
+        **{
+            "class": "samsung_g7",
+            "label": "Tizen TV (Samsung G7)",
+            "actions": [
+                {"name": "on", "description": "전원 켜기", "attributes": ["Stateful"]},
+                {"name": "off", "description": "전원 끄기", "attributes": ["Stateful"]},
+                {"name": "toggle", "description": "전원 토글", "attributes": ["Toggle", "Stateful"]},
+                {"name": "mute", "description": "음소거 토글", "attributes": ["Toggle", "Stateful"]},
+                {"name": "volume_up", "description": "볼륨 업(홀드 반복)", "attributes": ["Repeat", "Stateful"]},
+                {"name": "volume_down", "description": "볼륨 다운(홀드 반복)", "attributes": ["Repeat", "Stateful"]},
+                {"name": "nav_up", "description": "D-pad 위", "attributes": ["Repeat"]},
+                {"name": "nav_down", "description": "D-pad 아래", "attributes": ["Repeat"]},
+                {"name": "nav_left", "description": "D-pad 왼쪽", "attributes": ["Repeat"]},
+                {"name": "nav_right", "description": "D-pad 오른쪽", "attributes": ["Repeat"]},
+                {"name": "select", "description": "OK 선택", "attributes": ["Repeat"]},
+                {"name": "home", "description": "홈 화면", "attributes": ["Repeat"]},
+                {"name": "back", "description": "뒤로", "attributes": ["Repeat"]},
+                {"name": "input_source", "description": "입력 순환", "attributes": ["Repeat"]},
+                {"name": "play_pause", "description": "재생/일시정지", "attributes": ["Repeat"]},
+                {"name": "send_key", "description": "원시 리모컨 키(예: KEY_VOLUP)", "attributes": ["Repeat"]},
+                {"name": "channel_up", "description": "채널 업 (DTV 모델)", "attributes": ["Repeat"]},
+                {"name": "channel_down", "description": "채널 다운 (DTV 모델)", "attributes": ["Repeat"]},
+                {"name": "input", "description": "입력 전환(hdmi1..4/displayport/dp)", "attributes": ["Stateful"]},
+                {
+                    "name": "open_app",
+                    "description": "앱 실행(netflix/youtube/prime_video/samsung_tv_plus/앱ID)",
+                    "attributes": ["Stateful"],
+                },
+            ],
+            "queries": [
+                {"name": "capabilities", "description": "mute/volume/channel/input/openApp 플래그"},
+                {"name": "session", "description": "host/port/token"},
+                {"name": "state", "description": "{on, volume, channel, muted, app}"},
+                {"name": "inputs", "description": "사용 가능한 입력 목록"},
+                {"name": "input", "description": "현재 입력 소스"},
+            ],
+        }
+    ),
+    "wave_station": DeviceClassCapabilities(
+        **{
+            "class": "wave_station",
+            "label": "Wave Station (IR 허브·환경·마이크)",
+            "actions": [
+                {
+                    "name": "send_ir",
+                    "description": "IR 커맨드 송신(ir_list.json commandId, repeat?)",
+                    "attributes": ["Momentary"],
+                },
+                {
+                    "name": "subscribe",
+                    "description": "스트림 구독 시작(mic_opus/mic_pcm/ir_receive/ambient_light)",
+                    "attributes": ["Stateful"],
+                },
+                {"name": "unsubscribe", "description": "스트림 구독 해제", "attributes": ["Stateful"]},
+            ],
+            "queries": [
+                {"name": "capabilities", "description": "mic/speaker/IR/센서 플래그"},
+                {"name": "session", "description": "host/port/오디오 포맷"},
+                {"name": "status", "description": "연결·구독 상태"},
+                {"name": "mic_level", "description": "마이크 RMS 0..1"},
+                {"name": "env", "description": "{lux, temperature, humidity}"},
+                {"name": "last_ir", "description": "최근 IR 수신 + commandId 매칭"},
+            ],
+            "triggerKinds": ["ir_recv"],
+            "triggerableQueries": ["last_ir"],
+        }
+    ),
 }
 
 _MOCK_STATE: dict[int, dict[str, Any]] = {
     MOCK_DEVICES[0]["id"]: {"switch": True, "voltage": 234.6, "current": 118.2, "power": 27.7, "energy": 12.4},
     MOCK_DEVICES[1]["id"]: {"on": True, "brightness": 70, "color": {"r": 255, "g": 196, "b": 120}},
+    MOCK_DEVICES[4]["id"]: {  # 서재 TV (samsung_g7)
+        "on": True,
+        "volume": 15,
+        "channel": 7,
+        "muted": False,
+        "app": None,
+        "input": "hdmi1",
+        "inputs": ["hdmi1", "hdmi2", "hdmi3", "hdmi4", "displayport"],
+        "capabilities": {
+            "mute": True, "volume": True, "channel": True,
+            "input": True, "open_app": True, "send_key": True, "nav": True,
+        },
+        "session": {"host": "192.168.0.42", "port": 8002, "token": "mock-tv-token"},
+    },
+    MOCK_DEVICES[5]["id"]: {  # 침실 조명 (philips_wiz_e29_white)
+        "on": True,
+        "brightness": 55,
+        "temperature": 3200,
+        "capabilities": {"tunable_white": True, "temp_min_k": 2200, "temp_max_k": 6500},
+    },
+    MOCK_DEVICES[6]["id"]: {  # 서재 웨이브스테이션 (wave_station)
+        "connected": True,
+        "subscriptions": [],
+        "capabilities": {
+            "mic": True, "speaker": True, "ir_tx": True, "ir_rx": True,
+            "ambient_light": True, "temperature": True, "humidity": True,
+        },
+        "session": {"host": "192.168.0.55", "port": 7000, "audioFormat": "opus/48000/1"},
+        "mic_level": 0.0,
+        "env": {"lux": 180, "temperature": 24.5, "humidity": 45.0},
+        "last_ir": None,
+    },
 }
 
 # 카메라는 스위치/조명과 다른 축(스트리밍 on/off, pan/tilt 위치)이라 별도 mock 상태로 분리.
@@ -253,8 +374,19 @@ def _state_summary_text(device_id: int) -> str:
     state = _MOCK_STATE.get(device_id, {})
     if "power" in state:
         return f"켜짐 · {state['power']}W" if state.get("switch") else "꺼짐"
+    if "volume" in state:
+        if not state.get("on"):
+            return "꺼짐"
+        muted = " (음소거)" if state.get("muted") else ""
+        return f"켜짐 · 볼륨 {state['volume']}{muted}"
     if "brightness" in state:
-        return f"켜짐 · 밝기 {state['brightness']}%" if state.get("on") else "꺼짐"
+        if not state.get("on"):
+            return "꺼짐"
+        temp = f" · {state['temperature']}K" if "temperature" in state else ""
+        return f"켜짐 · 밝기 {state['brightness']}%{temp}"
+    if "env" in state:
+        env = state["env"]
+        return f"연결됨 · {env.get('temperature')}°C · 조도 {env.get('lux')}lx"
     return "알 수 없음"
 
 
@@ -391,18 +523,61 @@ async def invoke_device_action(
 
 def _apply_mock_action(state: dict[str, Any], action_name: str, params: dict[str, Any]) -> None:
     if action_name == "on":
-        state["switch"] = True
         state["on"] = True
+        if "switch" in state:
+            state["switch"] = True
     elif action_name == "off":
-        state["switch"] = False
         state["on"] = False
+        if "switch" in state:
+            state["switch"] = False
     elif action_name == "toggle":
-        state["switch"] = not state.get("switch", False)
-        state["on"] = state["switch"]
+        state["on"] = not state.get("on", False)
+        if "switch" in state:
+            state["switch"] = state["on"]
     elif action_name == "brightness" and "value" in params:
         state["brightness"] = params["value"]
     elif action_name == "color" and {"r", "g", "b"} <= params.keys():
         state["color"] = {"r": params["r"], "g": params["g"], "b": params["b"]}
+    elif action_name == "temperature" and "value" in params:
+        state["temperature"] = params["value"]
+    # ── TV (samsung_g7) ──
+    elif action_name == "mute":
+        state["muted"] = not state.get("muted", False)
+    elif action_name == "volume_up":
+        state["volume"] = min(100, state.get("volume", 0) + 2)
+    elif action_name == "volume_down":
+        state["volume"] = max(0, state.get("volume", 0) - 2)
+    elif action_name == "channel_up":
+        state["channel"] = state.get("channel", 0) + 1
+    elif action_name == "channel_down":
+        state["channel"] = max(0, state.get("channel", 0) - 1)
+    elif action_name == "input" and "source" in params:
+        state["input"] = params["source"]
+    elif action_name == "input_source":
+        inputs = state.get("inputs") or []
+        if inputs:
+            cur_idx = inputs.index(state["input"]) if state.get("input") in inputs else -1
+            state["input"] = inputs[(cur_idx + 1) % len(inputs)]
+    elif action_name == "open_app" and "app" in params:
+        state["app"] = params["app"]
+    elif action_name in ("nav_up", "nav_down", "nav_left", "nav_right", "select", "home", "back", "play_pause", "send_key"):
+        pass  # momentary 리모컨 키 입력 — 지속 상태가 없어 ack만(mock에서는 no-op)
+    # ── Wave Station ──
+    elif action_name == "send_ir" and "commandId" in params:
+        state["last_ir"] = {
+            "commandId": params["commandId"],
+            "repeat": params.get("repeat", 0),
+            "matched": True,
+            "receivedAt": "mock",
+        }
+    elif action_name == "subscribe" and "target" in params:
+        subs = state.setdefault("subscriptions", [])
+        if params["target"] not in subs:
+            subs.append(params["target"])
+    elif action_name == "unsubscribe" and "target" in params:
+        subs = state.setdefault("subscriptions", [])
+        if params["target"] in subs:
+            subs.remove(params["target"])
 
 
 async def get_ptz_capabilities(device_id: int) -> dict[str, Any]:
