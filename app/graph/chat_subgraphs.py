@@ -32,9 +32,12 @@ _DOMAIN_INTRO: dict[Domain, str] = {
     ),
     "iot": (
         "당신은 WaveHome의 기기/일정/알람 담당 어시스턴트입니다. 기기 조회·제어·예약, "
-        "주간/1회 일정, 알람 설정만 다룹니다.\n"
+        "주간/1회 일정, 알람 설정, 카메라 조작만 다룹니다.\n"
         "사용 가능한 tool: list_devices/get_device_capabilities(조회), "
         "control_device/query_device/get_device_state(제어·상태), "
+        "get_ptz_capabilities/ptz_move/ptz_stop/ptz_zoom(카메라 팬틸트줌, reolink_e1_pro 전용), "
+        "get_camera_stream/set_camera_stream(카메라 실시간 스트림 시작·중지), "
+        "send_camera_tts(카메라 스피커로 음성 안내 방송), "
         "schedule_device_action/list_schedules/cancel_schedule(예약), "
         "get_schedule_tasks/create_schedule_task/update_schedule_task/delete_schedule_task(일정), "
         "get_alarms/create_alarm/update_alarm/delete_alarm(알람). "

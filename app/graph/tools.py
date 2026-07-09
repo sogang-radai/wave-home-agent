@@ -18,7 +18,15 @@ from pydantic import BaseModel, Field
 from app.tools.db_query import TABLE_SPECS, DbQuery, DbQueryError, DbQueryResultItem, MAX_QUERIES, query_db
 from app.tools import alarms_internal, devices_internal, rules_internal, schedule_tasks_internal
 from app.tools.alarms_internal import CreateAlarmRequest
-from app.tools.devices_internal import ExecMode, InvokeDeviceRequest, QueryDeviceRequest
+from app.tools.devices_internal import (
+    ExecMode,
+    InvokeDeviceRequest,
+    PtzMoveRequest,
+    PtzZoomRequest,
+    QueryDeviceRequest,
+    SendTtsRequest,
+    StreamSetRequest,
+)
 from app.tools.rag_search import RagTarget, rag_search
 from app.tools.rules_internal import CreateRuleRequest, RuleAction, RuleSchedule
 from app.tools.schedule_tasks_internal import CreateScheduleTaskRequest, DayOfWeek
@@ -210,6 +218,109 @@ def make_get_device_state_tool(user_id: int) -> BaseTool:
         return _to_json(state.model_dump())
 
     return _get_device_state
+
+
+class _CameraDeviceArgs(BaseModel):
+    room_id: int = Field(..., description="카메라가 속한 방 ID")
+    device: str = Field(..., description="카메라 이름(부분 일치, 예: '현관 카메라')")
+
+
+def make_get_ptz_capabilities_tool(user_id: int) -> BaseTool:
+    @tool("get_ptz_capabilities", args_schema=_CameraDeviceArgs)
+    async def _get_ptz_capabilities(room_id: int, device: str) -> str:
+        """카메라의 PTZ(팬/틸트/줌) 지원 여부를 조회합니다. droid_cam 은 PTZ 를 지원하지 않습니다 -
+        먼저 get_device_capabilities 로 class 를 확인하거나, 이 tool 이 실패하면 PTZ 미지원 카메라입니다."""
+        device_id = await devices_internal.resolve_device_id(room_id, device, user_id=user_id)
+        caps = await devices_internal.get_ptz_capabilities(device_id)
+        return _to_json(caps)
+
+    return _get_ptz_capabilities
+
+
+class _PtzMoveArgs(_CameraDeviceArgs):
+    pan: float = Field(..., ge=-1, le=1, description="좌우 이동. -1=완전 좌측, 1=완전 우측")
+    tilt: float = Field(..., ge=-1, le=1, description="상하 이동. -1=완전 아래, 1=완전 위")
+
+
+def make_ptz_move_tool(user_id: int) -> BaseTool:
+    @tool("ptz_move", args_schema=_PtzMoveArgs)
+    async def _ptz_move(room_id: int, device: str, pan: float, tilt: float) -> str:
+        """카메라를 지정한 방향으로 회전시킵니다(reolink_e1_pro 전용)."""
+        device_id = await devices_internal.resolve_device_id(room_id, device, user_id=user_id)
+        result = await devices_internal.ptz_move(device_id, PtzMoveRequest(pan=pan, tilt=tilt))
+        return _to_json(result)
+
+    return _ptz_move
+
+
+def make_ptz_stop_tool(user_id: int) -> BaseTool:
+    @tool("ptz_stop", args_schema=_CameraDeviceArgs)
+    async def _ptz_stop(room_id: int, device: str) -> str:
+        """진행 중인 카메라 회전을 멈춥니다(reolink_e1_pro 전용)."""
+        device_id = await devices_internal.resolve_device_id(room_id, device, user_id=user_id)
+        result = await devices_internal.ptz_stop(device_id)
+        return _to_json(result)
+
+    return _ptz_stop
+
+
+class _PtzZoomArgs(_CameraDeviceArgs):
+    delta: float = Field(..., description="줌 변화량. 양수=확대, 음수=축소")
+
+
+def make_ptz_zoom_tool(user_id: int) -> BaseTool:
+    @tool("ptz_zoom", args_schema=_PtzZoomArgs)
+    async def _ptz_zoom(room_id: int, device: str, delta: float) -> str:
+        """카메라를 확대/축소합니다(reolink_e1_pro 전용)."""
+        device_id = await devices_internal.resolve_device_id(room_id, device, user_id=user_id)
+        result = await devices_internal.ptz_zoom(device_id, PtzZoomRequest(delta=delta))
+        return _to_json(result)
+
+    return _ptz_zoom
+
+
+def make_get_camera_stream_tool(user_id: int) -> BaseTool:
+    @tool("get_camera_stream", args_schema=_CameraDeviceArgs)
+    async def _get_camera_stream(room_id: int, device: str) -> str:
+        """카메라 실시간 스트림의 현재 상태(재생 중 여부)와 재생 URL 을 조회합니다."""
+        device_id = await devices_internal.resolve_device_id(room_id, device, user_id=user_id)
+        state = await devices_internal.get_stream(device_id)
+        return _to_json(state.model_dump())
+
+    return _get_camera_stream
+
+
+class _SetCameraStreamArgs(_CameraDeviceArgs):
+    streaming: bool = Field(..., description="true=스트림 시작, false=스트림 중지")
+
+
+def make_set_camera_stream_tool(user_id: int) -> BaseTool:
+    @tool("set_camera_stream", args_schema=_SetCameraStreamArgs)
+    async def _set_camera_stream(room_id: int, device: str, streaming: bool) -> str:
+        """카메라 실시간 스트림을 시작하거나 중지합니다. 시작 시 반환되는 url 을 사용자에게
+        안내하세요(프론트가 그 url 로 영상을 재생합니다)."""
+        device_id = await devices_internal.resolve_device_id(room_id, device, user_id=user_id)
+        state = await devices_internal.set_stream(device_id, StreamSetRequest(streaming=streaming))
+        return _to_json(state.model_dump())
+
+    return _set_camera_stream
+
+
+class _SendCameraTtsArgs(_CameraDeviceArgs):
+    text: str = Field(..., description="카메라 스피커로 재생할 안내 문구")
+    speed: Optional[float] = Field(None, description="재생 속도 배율. 생략 시 기본값")
+
+
+def make_send_camera_tts_tool(user_id: int) -> BaseTool:
+    @tool("send_camera_tts", args_schema=_SendCameraTtsArgs)
+    async def _send_camera_tts(room_id: int, device: str, text: str, speed: Optional[float] = None) -> str:
+        """카메라의 스피커로 텍스트를 음성 안내 방송합니다(양방향 오디오). 백엔드 TTS 엔진이
+        준비되지 않았으면 실패할 수 있습니다."""
+        device_id = await devices_internal.resolve_device_id(room_id, device, user_id=user_id)
+        result = await devices_internal.send_tts(device_id, SendTtsRequest(text=text, speed=speed))
+        return _to_json(result)
+
+    return _send_camera_tts
 
 
 class _ScheduleDeviceActionArgs(BaseModel):
@@ -596,6 +707,13 @@ def build_tools(user_id: int) -> list[BaseTool]:
         make_control_device_tool(user_id),
         make_query_device_tool(user_id),
         make_get_device_state_tool(user_id),
+        make_get_ptz_capabilities_tool(user_id),
+        make_ptz_move_tool(user_id),
+        make_ptz_stop_tool(user_id),
+        make_ptz_zoom_tool(user_id),
+        make_get_camera_stream_tool(user_id),
+        make_set_camera_stream_tool(user_id),
+        make_send_camera_tts_tool(user_id),
         make_schedule_device_action_tool(user_id),
         make_list_schedules_tool(user_id),
         make_cancel_schedule_tool(user_id),

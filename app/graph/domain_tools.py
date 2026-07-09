@@ -19,19 +19,26 @@ from app.graph.tools import (
     make_delete_schedule_task_tool,
     make_execute_rule_tool,
     make_get_alarms_tool,
+    make_get_camera_stream_tool,
     make_get_device_capabilities_tool,
     make_get_device_classes_tool,
     make_get_device_state_tool,
     make_get_ir_command_tool,
+    make_get_ptz_capabilities_tool,
     make_get_schedule_tasks_tool,
     make_list_devices_tool,
     make_list_events_tool,
     make_list_ir_commands_tool,
     make_list_schedules_tool,
+    make_ptz_move_tool,
+    make_ptz_stop_tool,
+    make_ptz_zoom_tool,
     make_query_db_tool,
     make_query_device_tool,
     make_rag_search_tool,
     make_schedule_device_action_tool,
+    make_send_camera_tts_tool,
+    make_set_camera_stream_tool,
     make_set_rule_enabled_tool,
     make_update_alarm_tool,
     make_update_schedule_task_tool,
@@ -68,6 +75,13 @@ def build_domain_tools(domain: Domain, user_id: int) -> list[BaseTool]:
         tools.append(make_control_device_tool(user_id))
         tools.append(make_query_device_tool(user_id))
         tools.append(make_get_device_state_tool(user_id))
+        tools.append(make_get_ptz_capabilities_tool(user_id))
+        tools.append(make_ptz_move_tool(user_id))
+        tools.append(make_ptz_stop_tool(user_id))
+        tools.append(make_ptz_zoom_tool(user_id))
+        tools.append(make_get_camera_stream_tool(user_id))
+        tools.append(make_set_camera_stream_tool(user_id))
+        tools.append(make_send_camera_tts_tool(user_id))
         tools.append(make_schedule_device_action_tool(user_id))
         tools.append(make_list_schedules_tool(user_id))
         tools.append(make_cancel_schedule_tool(user_id))
