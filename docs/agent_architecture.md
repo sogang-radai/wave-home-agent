@@ -157,7 +157,7 @@ Job state는 `app/services/jobs.py`의 in-memory dict에만 저장된다. 완료
 
 ## LLM Clients
 
-- `app/services/llm.py`: Gemini 호출 래퍼. 채팅, report, job 텍스트 생성에서 사용한다.
+- `app/services/llm.py`: LLM 호출 래퍼 (Gemini/OpenAI, `LLM_PROVIDER`로 전환). 채팅, report, job 텍스트 생성에서 사용한다.
 - `app/clients/ollama.py`: Ollama/OpenAI 호환 API transport. `/llm/v1/*` 프록시와 임베딩 job에서 사용한다.
 
 ## Legacy Domain Agents

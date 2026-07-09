@@ -3,9 +3,9 @@ from typing import Any, AsyncIterator, Callable, Awaitable
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from app.config import get_settings
 from app.graph.turn_graph import BACKGROUND_TAG, build_chat_graph, scrub_disclaimer
 from app.schemas.chat import ChatTurnRequest, ChatTurnResponse, ToolCallRecord
+from app.services.llm import default_model_name
 from app.state.chat_state import ChatTurnState
 
 
@@ -119,7 +119,7 @@ async def stream_turn(body: ChatTurnRequest, disconnect: Callable[[], Awaitable[
             {
                 "type": "message.completed",
                 "content": final_answer,
-                "model": body.model or get_settings().gemini_model,
+                "model": body.model or default_model_name(),
             }
         )
         yield b"data: [DONE]\n\n"
@@ -153,4 +153,4 @@ async def run_turn_sync(body: ChatTurnRequest) -> ChatTurnResponse:
 
     last = messages[-1]
     content = scrub_disclaimer(_extract_text(last.content)) if last.content else ""
-    return ChatTurnResponse(content=content, model=body.model or get_settings().gemini_model, toolCalls=tool_calls)
+    return ChatTurnResponse(content=content, model=body.model or default_model_name(), toolCalls=tool_calls)
