@@ -264,6 +264,21 @@ async def list_rules(
     return [_rule_from_wire(item) for item in response.get("items", [])]
 
 
+async def get_rule(rule_id: str) -> RuleView:
+    client = _client()
+    if client.is_mock:
+        rule = next((r for r in _MOCK_RULES if r.id == rule_id), None)
+        if rule is None:
+            raise InternalApiError("NOT_FOUND", f"ruleId={rule_id} 인 룰을 찾을 수 없습니다.")
+        return rule
+
+    try:
+        response = await client.get(f"/rules/{rule_id}")
+    except ToolError as exc:
+        _raise_from_tool_error(exc)
+    return _rule_from_wire(response)
+
+
 async def create_rule(req: CreateRuleRequest) -> RuleView:
     client = _client()
     if client.is_mock:
