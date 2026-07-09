@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.clients.core import CoreApiClient, ToolError
 from app.config import get_settings
-from app.tools.db_query import MOCK_DEVICES
+from app.tools.db_query import MOCK_DEVICES, MOCK_ROOMS
 from app.tools.device_id import device_id_to_hex, hex_to_device_id
 from app.tools.errors import InternalApiError
 
@@ -356,6 +356,11 @@ _MOCK_CAMERA_STATE: dict[int, dict[str, Any]] = {
 }
 
 
+def _mock_room_name(room_id: int) -> str:
+    room = next((r for r in MOCK_ROOMS if r["id"] == room_id), None)
+    return room["name"] if room else str(room_id)
+
+
 def _mock_summary(device: dict[str, Any]) -> DeviceSummary:
     caps = _MOCK_CAPABILITIES.get(device["class"])
     return DeviceSummary(
@@ -367,7 +372,7 @@ def _mock_summary(device: dict[str, Any]) -> DeviceSummary:
         enabled=not bool(device.get("archived")),
         connected=True,
         stateSummary=_state_summary_text(device["id"]),
-        room={"id": device["roomId"], "name": "거실"} if device.get("roomId") else None,
+        room={"id": device["roomId"], "name": _mock_room_name(device["roomId"])} if device.get("roomId") else None,
     )
 
 
@@ -509,6 +514,10 @@ async def invoke_device_action(
         device = _mock_device_by_id(device_id)
         if device is None:
             raise InternalApiError("NOT_FOUND", f"deviceId={device_id} 인 장치를 찾을 수 없습니다.")
+        caps = _MOCK_CAPABILITIES.get(device["class"])
+        known_actions = {a.name for a in caps.actions} if caps else set()
+        if action_name not in known_actions:
+            raise InternalApiError("ACTION_NOT_FOUND", f"'{action_name}' 은 해당 클래스에 없는 action 입니다.")
         state = _MOCK_STATE.setdefault(device_id, {})
         _apply_mock_action(state, action_name, req.params)
         return InvokeDeviceResponse(ok=True, deviceId=device_id, action=action_name, state=dict(state), eventId="evt_mock")
