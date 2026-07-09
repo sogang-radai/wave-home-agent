@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.clients.core import CoreApiClient, ToolError
 from app.config import get_settings
-from app.tools.db_query import MOCK_DEVICES, MOCK_ROOMS
+from app.tools.db_query import MOCK_DEVICE_USER_MAP, MOCK_DEVICES, MOCK_ROOMS
 from app.tools.device_id import device_id_to_hex, hex_to_device_id
 from app.tools.errors import InternalApiError
 
@@ -309,12 +309,40 @@ _MOCK_CAPABILITIES: dict[str, DeviceClassCapabilities] = {
             "triggerableQueries": ["last_ir"],
         }
     ),
+    "srs_r4sn": DeviceClassCapabilities(
+        **{
+            "class": "srs_r4sn",
+            "label": "mmWave 레이더 (SRS R4SN)",
+            # 조작·예약 action 없음(device-tool-api.md) — 제스처 트리거 소스 + 고대역폭 쿼리 전용.
+            "queries": [
+                {"name": "point_cloud", "description": "포인트 클라우드 스트림 (Interface)"},
+                {"name": "iq", "description": "IQ 샘플, 온디맨드 (Interface)"},
+            ],
+            "triggerKinds": ["gesture"],
+        }
+    ),
 }
 
+# id 체계는 db_query.py의 MOCK_DEVICES/mock.db와 1:1(1~13). 침실(room 2) 장치는 user 1 전용,
+# 거실·부엌(room 1·3) 장치는 두 유저 공용 — MOCK_DEVICE_USER_MAP 과 정합.
 _MOCK_STATE: dict[int, dict[str, Any]] = {
-    MOCK_DEVICES[0]["id"]: {"switch": True, "voltage": 234.6, "current": 118.2, "power": 27.7, "energy": 12.4},
-    MOCK_DEVICES[1]["id"]: {"on": True, "brightness": 70, "color": {"r": 255, "g": 196, "b": 120}},
-    MOCK_DEVICES[4]["id"]: {  # 서재 TV (samsung_g7)
+    3: {  # Wave Station
+        "connected": True,
+        "subscriptions": [],
+        "capabilities": {
+            "mic": True, "speaker": True, "ir_tx": True, "ir_rx": True,
+            "ambient_light": True, "temperature": True, "humidity": True,
+        },
+        "session": {"host": "192.168.0.55", "port": 7000, "audioFormat": "opus/48000/1"},
+        "mic_level": 0.0,
+        "env": {"lux": 180, "temperature": 24.5, "humidity": 45.0},
+        "last_ir": None,
+    },
+    6: {"switch": True, "voltage": 231.4, "current": 88.2, "power": 20.5, "energy": 6.3},    # 플러그1 - 선풍기
+    7: {"switch": True, "voltage": 232.1, "current": 42.0, "power": 9.7, "energy": 3.1},     # 플러그2 - 컴퓨터
+    8: {"switch": True, "voltage": 231.8, "current": 118.2, "power": 27.7, "energy": 12.4},  # 플러그3 - 에어컨
+    9: {"switch": False, "voltage": 230.9, "current": 0.0, "power": 0.0, "energy": 1.8},     # 플러그4 - 인덕션
+    10: {  # 침실 TV (samsung_g7)
         "on": True,
         "volume": 15,
         "channel": 7,
@@ -328,31 +356,25 @@ _MOCK_STATE: dict[int, dict[str, Any]] = {
         },
         "session": {"host": "192.168.0.42", "port": 8002, "token": "mock-tv-token"},
     },
-    MOCK_DEVICES[5]["id"]: {  # 침실 조명 (philips_wiz_e29_white)
+    11: {"on": True, "brightness": 70, "color": {"r": 255, "g": 196, "b": 120}},  # 침실 조명 (color)
+    12: {  # 거실 조명 (white)
+        "on": True,
+        "brightness": 70,
+        "temperature": 4000,
+        "capabilities": {"tunable_white": True, "temp_min_k": 2200, "temp_max_k": 6500},
+    },
+    13: {  # 부엌 조명 (white)
         "on": True,
         "brightness": 55,
         "temperature": 3200,
         "capabilities": {"tunable_white": True, "temp_min_k": 2200, "temp_max_k": 6500},
     },
-    MOCK_DEVICES[6]["id"]: {  # 서재 웨이브스테이션 (wave_station)
-        "connected": True,
-        "subscriptions": [],
-        "capabilities": {
-            "mic": True, "speaker": True, "ir_tx": True, "ir_rx": True,
-            "ambient_light": True, "temperature": True, "humidity": True,
-        },
-        "session": {"host": "192.168.0.55", "port": 7000, "audioFormat": "opus/48000/1"},
-        "mic_level": 0.0,
-        "env": {"lux": 180, "temperature": 24.5, "humidity": 45.0},
-        "last_ir": None,
-    },
-    MOCK_DEVICES[7]["id"]: {"switch": True, "voltage": 231.8, "current": 96.4, "power": 21.9, "energy": 8.1},
 }
 
 # 카메라는 스위치/조명과 다른 축(스트리밍 on/off, pan/tilt 위치)이라 별도 mock 상태로 분리.
 _MOCK_CAMERA_STATE: dict[int, dict[str, Any]] = {
-    MOCK_DEVICES[2]["id"]: {"streaming": False, "pan": 0.0, "tilt": 0.0, "zoom": 0.0},
-    MOCK_DEVICES[3]["id"]: {"streaming": False, "pan": 0.0, "tilt": 0.0, "zoom": 0.0},
+    4: {"streaming": False, "pan": 0.0, "tilt": 0.0, "zoom": 0.0},  # 폰 카메라 (droid_cam)
+    5: {"streaming": False, "pan": 0.0, "tilt": 0.0, "zoom": 0.0},  # 거실 카메라 (reolink_e1_pro)
 }
 
 
@@ -418,6 +440,9 @@ async def list_devices(
             items = [d for d in items if d["roomId"] == room_id]
         if device_class is not None:
             items = [d for d in items if d["class"] == device_class]
+        if user_id is not None:
+            owned = {m["deviceId"] for m in MOCK_DEVICE_USER_MAP if m["userId"] == user_id}
+            items = [d for d in items if d["id"] in owned]
         return [_mock_summary(d) for d in items]
 
     params = {

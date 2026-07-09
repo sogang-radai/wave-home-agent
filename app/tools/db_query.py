@@ -114,23 +114,38 @@ def _schedule_task_mock(user_id: int) -> list[dict[str, Any]]:
 # device-tool-api.md §설계 원칙 4: roomId+장치이름 해석은 device/device_room_map 조회로 처리한다.
 # Phase 3의 devices_internal.resolve_device_id() 가 mock 모드에서도 id/이름이 어긋나지 않도록
 # 이 카탈로그를 그대로 import 해서 재사용한다.
+#
+# id/room/user 체계는 프로젝트 루트의 mock.db(db-schema.md 그대로 채워진 실 시딩 데이터, 2 유저·
+# 3 방·13 장치)와 1:1로 맞췄다 — 나중에 실제 백엔드가 이 mock.db로 시딩되면 여기 테스트/데모 id가
+# 그대로 들어맞는다. automation_rule/alarm 은 mock.db 쪽 데이터가 지금 스펙(cron 미지원 RuleSchedule,
+# AlarmMethod 에 sound 없음 등)과 안 맞아서 가져오지 않았다 — 팀 확인 필요, rules_internal.py/
+# alarms_internal.py 의 기존 mock은 그대로 둔다.
 MOCK_DEVICES: list[dict[str, Any]] = [
-    {"id": 7714208883279181, "name": "거실 에어컨", "description": "거실 벽걸이 에어컨",
+    {"id": 1, "name": "침실 하방 레이더", "description": "침대 하부 mmWave 레이더",
+     "class": "srs_r4sn", "archived": 0, "roomId": 2},
+    {"id": 2, "name": "침실 책상 레이더", "description": "책상 mmWave 레이더",
+     "class": "srs_r4sn", "archived": 0, "roomId": 2},
+    {"id": 3, "name": "Wave Station", "description": "IR 허브·환경·마이크",
+     "class": "wave_station", "archived": 0, "roomId": 2},
+    {"id": 4, "name": "폰 카메라", "description": "DroidCam", "class": "droid_cam", "archived": 0, "roomId": 1},
+    {"id": 5, "name": "거실 카메라", "description": "Reolink E1 Pro",
+     "class": "reolink_e1_pro", "archived": 0, "roomId": 1},
+    {"id": 6, "name": "플러그1 - 선풍기", "description": "거실 선풍기 플러그",
+     "class": "tuya_ep2h", "archived": 0, "roomId": 1},
+    {"id": 7, "name": "플러그2 - 컴퓨터", "description": "침실 PC 플러그",
      "class": "tuya_ep2h", "archived": 0, "roomId": 2},
-    {"id": 7714208883279182, "name": "거실 조명", "description": "거실 천장 조명",
+    {"id": 8, "name": "플러그3 - 에어컨", "description": "침실 에어컨 플러그",
+     "class": "tuya_ep2h", "archived": 0, "roomId": 2},
+    {"id": 9, "name": "플러그4 - 인덕션", "description": "부엌 인덕션 플러그",
+     "class": "tuya_ep2h", "archived": 0, "roomId": 3},
+    {"id": 10, "name": "침실 TV", "description": "삼성 Tizen TV (G7)",
+     "class": "samsung_g7", "archived": 0, "roomId": 2},
+    {"id": 11, "name": "침실 조명", "description": "WiZ 컬러 조명",
      "class": "philips_wiz_e29_color", "archived": 0, "roomId": 2},
-    {"id": 7714208883279183, "name": "현관 카메라", "description": "Reolink E1 Pro",
-     "class": "reolink_e1_pro", "archived": 0, "roomId": 3},
-    {"id": 7714208883279184, "name": "안방 카메라", "description": "DroidCam",
-     "class": "droid_cam", "archived": 0, "roomId": 4},
-    {"id": 7714208883279185, "name": "서재 TV", "description": "삼성 Tizen TV (G7)",
-     "class": "samsung_g7", "archived": 0, "roomId": 5},
-    {"id": 7714208883279186, "name": "침실 조명", "description": "WiZ 화이트 조명",
-     "class": "philips_wiz_e29_white", "archived": 0, "roomId": 6},
-    {"id": 7714208883279187, "name": "서재 웨이브스테이션", "description": "Wave Station (IR 허브·환경·마이크)",
-     "class": "wave_station", "archived": 0, "roomId": 5},
-    {"id": 7714208883279188, "name": "침실 에어컨", "description": "침실 벽걸이 에어컨",
-     "class": "tuya_ep2h", "archived": 0, "roomId": 6},
+    {"id": 12, "name": "거실 조명", "description": "WiZ 화이트 조명",
+     "class": "philips_wiz_e29_white", "archived": 0, "roomId": 1},
+    {"id": 13, "name": "부엌 조명", "description": "WiZ 화이트 조명",
+     "class": "philips_wiz_e29_white", "archived": 0, "roomId": 3},
 ]
 
 MOCK_DEVICE_ROOM_MAP: list[dict[str, Any]] = [
@@ -138,18 +153,35 @@ MOCK_DEVICE_ROOM_MAP: list[dict[str, Any]] = [
 ]
 
 MOCK_ROOMS: list[dict[str, Any]] = [
-    {"id": 2, "name": "거실", "description": "거실"},
-    {"id": 3, "name": "현관", "description": "현관"},
-    {"id": 4, "name": "안방", "description": "안방"},
-    {"id": 5, "name": "서재", "description": "서재"},
-    {"id": 6, "name": "침실", "description": "침실"},
+    {"id": 1, "name": "거실", "description": "공용 거실. 카메라/에어컨/선풍기/조명, 두 사람 모두 사용."},
+    {"id": 2, "name": "침실", "description": "김건강 침실. 레이더 2대(하방/책상)/Wave Station/조명/TV/PC 플러그. 박헬스는 사용하지 않음."},
+    {"id": 3, "name": "부엌", "description": "공용 부엌. 인덕션 플러그/조명, 두 사람 모두 사용."},
 ]
 
-# db-schema.md: room_user_map 은 N:M(구성원별 개인 방). 공용 공간(거실 등)은 매핑 없이 둔다 —
-# "내 방"처럼 방을 특정하지 않은 요청을 room_user_map 으로 해석하는 흐름(chat_subgraphs.py)의
-# mock 데모용. user 1 = 침실(6) 소유자.
+# user 1 = 김건강(거실·침실·부엌 전부), user 2 = 박헬스(거실·부엌만, 침실은 안 씀) — mock.db 그대로.
 MOCK_ROOM_USER_MAP: list[dict[str, Any]] = [
-    {"roomId": 6, "userId": 1},
+    {"roomId": 1, "userId": 1},
+    {"roomId": 2, "userId": 1},
+    {"roomId": 3, "userId": 1},
+    {"roomId": 1, "userId": 2},
+    {"roomId": 3, "userId": 2},
+]
+
+# 공용 장치(거실·부엌 대부분)는 두 유저 다 접근, 침실 장치는 user 1 전용 — mock.db 그대로.
+MOCK_DEVICE_USER_MAP: list[dict[str, Any]] = [
+    {"deviceId": 1, "userId": 1},
+    {"deviceId": 2, "userId": 1},
+    {"deviceId": 3, "userId": 1},
+    {"deviceId": 4, "userId": 1}, {"deviceId": 4, "userId": 2},
+    {"deviceId": 5, "userId": 1}, {"deviceId": 5, "userId": 2},
+    {"deviceId": 6, "userId": 1}, {"deviceId": 6, "userId": 2},
+    {"deviceId": 7, "userId": 1},
+    {"deviceId": 8, "userId": 1},
+    {"deviceId": 9, "userId": 1}, {"deviceId": 9, "userId": 2},
+    {"deviceId": 10, "userId": 1},
+    {"deviceId": 11, "userId": 1},
+    {"deviceId": 12, "userId": 1}, {"deviceId": 12, "userId": 2},
+    {"deviceId": 13, "userId": 1}, {"deviceId": 13, "userId": 2},
 ]
 
 
@@ -163,6 +195,9 @@ def _device_mock(_user_id: int | None, filter_: dict[str, Any]) -> list[dict[str
         items = [d for d in items if d["archived"] == filter_["archived"]]
     if "id" in filter_:
         items = [d for d in items if d["id"] == filter_["id"]]
+    if "userId" in filter_:
+        owned = {m["deviceId"] for m in MOCK_DEVICE_USER_MAP if m["userId"] == filter_["userId"]}
+        items = [d for d in items if d["id"] in owned]
     return items
 
 
@@ -172,6 +207,15 @@ def _device_room_map_mock(_user_id: int | None, filter_: dict[str, Any]) -> list
         items = [m for m in items if m["roomId"] == filter_["roomId"]]
     if "deviceId" in filter_:
         items = [m for m in items if m["deviceId"] == filter_["deviceId"]]
+    return items
+
+
+def _device_user_map_mock(_user_id: int | None, filter_: dict[str, Any]) -> list[dict[str, Any]]:
+    items = MOCK_DEVICE_USER_MAP
+    if "deviceId" in filter_:
+        items = [m for m in items if m["deviceId"] == filter_["deviceId"]]
+    if "userId" in filter_:
+        items = [m for m in items if m["userId"] == filter_["userId"]]
     return items
 
 
@@ -258,10 +302,11 @@ _MOCK_GENERATORS = {
     "schedule_task": _schedule_task_mock,
 }
 
-# device/device_room_map/room/room_user_map 목업은 filter 를 참조해야 해서 별도 딕셔너리로 분리.
+# device/device_room_map/device_user_map/room/room_user_map 목업은 filter 를 참조해야 해서 별도 딕셔너리로 분리.
 _FILTER_AWARE_MOCK_GENERATORS = {
     "device": _device_mock,
     "device_room_map": _device_room_map_mock,
+    "device_user_map": _device_user_map_mock,
     "room": _room_mock,
     "room_user_map": _room_user_map_mock,
 }
