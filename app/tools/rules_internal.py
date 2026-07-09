@@ -192,11 +192,39 @@ _MOCK_RULES: list[RuleView] = [
         enabled=True,
         trigger=None,
         schedule=ScheduleOnce(delayMinutes=30),
-        action=RuleAction(deviceId=7714208883279181, name="off"),
+        action=RuleAction(deviceId=10, name="off"),
         execMode="once",
         cooldownMs=0,
-        actionDeviceName="거실 에어컨",
-    )
+        actionDeviceName="침실 TV",
+    ),
+    # 아래 2개는 mock.db(db-schema.md 시딩 데이터)의 automation_rule 중 지금 스펙(cron 미지원,
+    # ScheduleDaily/Weekly만)으로 변환 가능한 것만 옮겨온 것. mock.db의 나머지 2개
+    # (외출 시 에어컨 자동정지 - presence 트리거, 인덕션 안전 타이머 - 트리거 발동 후 상대 지연)와
+    # alarm의 sound 타입은 지금 RuleTrigger/AlarmMethod 스펙에 없는 개념이라 보류 중 — 팀 확인 필요.
+    RuleView(
+        id="rule_schedule_bedroom_light_off",
+        name="취침 시간 자동 소등",
+        enabled=True,
+        trigger=None,
+        schedule=ScheduleDaily(time="23:00"),  # mock.db: cron "0 23 * * *"
+        action=RuleAction(deviceId=11, name="off"),
+        execMode="once",
+        cooldownMs=0,
+        actionDeviceName="침실 조명",
+    ),
+    RuleView(
+        id="rule_schedule_wake_light_ramp",
+        name="기상 조명 서서히 밝히기",
+        enabled=True,
+        trigger=None,
+        schedule=ScheduleWeekly(time="06:30", daysOfWeek=["mon", "tue", "wed", "thu", "fri"]),  # mock.db: cron "30 6 * * 1-5"
+        # mock.db 원본 action은 name="ramp_on", params={"durationMs": 1800000}(30분에 걸쳐 서서히
+        # 밝힘) — 조명 클래스에 없는 액션이라 이 필드는 못 옮긴다. 스케줄만 재현하고 즉시 on으로 대체.
+        action=RuleAction(deviceId=11, name="on"),
+        execMode="once",
+        cooldownMs=0,
+        actionDeviceName="침실 조명",
+    ),
 ]
 
 _MOCK_IR_COMMANDS: list[IrCommand] = [
@@ -216,8 +244,8 @@ _MOCK_EVENTS: list[DeviceEvent] = [
         id="evt_mock_1",
         type="execution",
         occurredAt="2026-07-06 10:05:12",
-        deviceId=7714208883279181,
-        deviceName="거실 에어컨",
+        deviceId=8,
+        deviceName="플러그3 - 에어컨",
         message="on 실행",
         triggeredBy="agent:manual",
     )
