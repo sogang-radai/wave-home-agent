@@ -261,7 +261,11 @@ async def _run_one(query: DbQuery) -> DbQueryResultItem:
             items = []
     else:
         response = await client.post("/db/query", json={"queries": [query.model_dump()]})
-        items = response.get("results", [{}])[0].get("items", [])
+        result = response.get("results", [{}])[0]
+        backend_error = result.get("error")
+        if backend_error is not None:
+            return DbQueryResultItem(table=query.table, count=0, items=[], error=DbQueryError(**backend_error))
+        items = result.get("items", [])
 
     items = items[:limit]
     if query.order == "desc":
