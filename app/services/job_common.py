@@ -41,7 +41,7 @@ def create_job_or_409(kind: str, dedupe_key: str) -> Job:
             409,
             "JOB_ALREADY_RUNNING",
             "동일 대상에 대한 job 이 이미 queued/running 상태입니다.",
-            detail={"jobId": exc.existing_job_id},
+            job_id=exc.existing_job_id,
         ) from exc
 
 

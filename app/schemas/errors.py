@@ -29,6 +29,7 @@ class ErrorDetail(BaseModel):
     message: str
     field: Optional[str] = None
     detail: Optional[dict[str, Any]] = None
+    jobId: Optional[str] = None
 
 
 class ErrorEnvelope(BaseModel):

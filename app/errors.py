@@ -18,6 +18,7 @@ class AgentApiError(Exception):
         *,
         field: Optional[str] = None,
         detail: Optional[dict[str, Any]] = None,
+        job_id: Optional[str] = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
@@ -25,10 +26,13 @@ class AgentApiError(Exception):
         self.message = message
         self.field = field
         self.detail = detail
+        self.job_id = job_id
 
     def to_envelope(self) -> ErrorEnvelope:
         return ErrorEnvelope(
-            error=ErrorDetail(code=self.code, message=self.message, field=self.field, detail=self.detail)
+            error=ErrorDetail(
+                code=self.code, message=self.message, field=self.field, detail=self.detail, jobId=self.job_id
+            )
         )
 
 
