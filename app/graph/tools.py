@@ -28,7 +28,14 @@ from app.tools.devices_internal import (
     StreamSetRequest,
 )
 from app.tools.rag_search import RagTarget, rag_search
-from app.tools.rules_internal import CreateRuleRequest, RuleAction, RuleSchedule
+from app.tools.rules_internal import (
+    CreateRuleRequest,
+    DeviceStateTrigger,
+    GestureTrigger,
+    IrRecvTrigger,
+    RuleAction,
+    RuleSchedule,
+)
 from app.tools.schedule_tasks_internal import CreateScheduleTaskRequest, DayOfWeek
 
 
@@ -353,6 +360,82 @@ def make_schedule_device_action_tool(user_id: int) -> BaseTool:
         return _to_json(rule.model_dump())
 
     return _schedule_device_action
+
+
+class _AutomateDeviceActionArgs(BaseModel):
+    trigger_room_id: int = Field(..., description="트리거가 되는 장치가 속한 방 ID")
+    trigger_device: str = Field(
+        ..., description="트리거가 되는 장치 이름(부분 일치). 제스처=레이더(srs_r4sn), 기기상태=센서/플러그/조명, "
+        "IR수신=Wave Station. get_device_capabilities의 triggerKinds로 지원 여부를 먼저 확인하세요."
+    )
+    trigger_kind: Literal["gesture", "device_state", "ir_recv"] = Field(..., description="트리거 종류")
+    gesture_set_path: Optional[str] = Field(
+        None, description="trigger_kind='gesture'일 때 필수. 제스처셋 경로(레이더 장치의 gestureSetPath)"
+    )
+    class_id: Optional[int] = Field(None, description="trigger_kind='gesture'일 때 필수. 감지할 제스처 클래스 ID")
+    query: Optional[str] = Field(
+        None, description="trigger_kind='device_state'일 때 필수. 감시할 query 이름(예: power). "
+        "get_device_capabilities의 triggerableQueries 참고"
+    )
+    op: Optional[Literal[">", ">=", "<", "<=", "=="]] = Field(
+        None, description="trigger_kind='device_state'일 때 필수. 비교 연산자"
+    )
+    value: Optional[float] = Field(None, description="trigger_kind='device_state'일 때 필수. 비교 임계값")
+    command_id: Optional[str] = Field(
+        None, description="trigger_kind='ir_recv'일 때 필수. list_ir_commands 결과의 id"
+    )
+    action_room_id: int = Field(..., description="트리거 발동 시 실행할 장치가 속한 방 ID")
+    action_device: str = Field(..., description="트리거 발동 시 실행할 장치 이름(부분 일치)")
+    action_name: str = Field(..., description="실행할 action 이름(get_device_capabilities 결과 참고)")
+    params: dict[str, Any] = Field(default_factory=dict, description="action params")
+    name: Optional[str] = Field(None, description="자동화 이름(생략 시 자동 생성)")
+
+
+def make_automate_device_action_tool(user_id: int) -> BaseTool:
+    @tool("automate_device_action", args_schema=_AutomateDeviceActionArgs)
+    async def _automate_device_action(
+        trigger_room_id: int,
+        trigger_device: str,
+        trigger_kind: Literal["gesture", "device_state", "ir_recv"],
+        action_room_id: int,
+        action_device: str,
+        action_name: str,
+        gesture_set_path: Optional[str] = None,
+        class_id: Optional[int] = None,
+        query: Optional[str] = None,
+        op: Optional[Literal[">", ">=", "<", "<=", "=="]] = None,
+        value: Optional[float] = None,
+        command_id: Optional[str] = None,
+        params: Optional[dict[str, Any]] = None,
+        name: Optional[str] = None,
+    ) -> str:
+        """제스처 감지·기기 상태 임계값·IR 수신 같은 이벤트가 발생하면 다른 장치 동작을 실행하도록
+        자동화를 등록합니다. 시간 기반 예약(지연/반복)은 schedule_device_action을 대신 쓰세요."""
+        trigger_device_id = await devices_internal.resolve_device_id(trigger_room_id, trigger_device, user_id=user_id)
+
+        if trigger_kind == "gesture":
+            if gesture_set_path is None or class_id is None:
+                raise ValueError("trigger_kind='gesture'에는 gesture_set_path와 class_id가 모두 필요합니다.")
+            trigger = GestureTrigger(deviceId=trigger_device_id, gestureSetPath=gesture_set_path, classId=class_id)
+        elif trigger_kind == "device_state":
+            if query is None or op is None or value is None:
+                raise ValueError("trigger_kind='device_state'에는 query, op, value가 모두 필요합니다.")
+            trigger = DeviceStateTrigger(deviceId=trigger_device_id, query=query, op=op, value=value)
+        else:
+            if command_id is None:
+                raise ValueError("trigger_kind='ir_recv'에는 command_id가 필요합니다.")
+            trigger = IrRecvTrigger(deviceId=trigger_device_id, commandId=command_id)
+
+        action_device_id = await devices_internal.resolve_device_id(action_room_id, action_device, user_id=user_id)
+        req = CreateRuleRequest(
+            name=name or f"{trigger_device} {trigger_kind} -> {action_device} {action_name}",
+            trigger=trigger,
+            action=RuleAction(deviceId=action_device_id, name=action_name, params=params or {}),
+        )
+        rule = await rules_internal.create_rule(req)
+        return _to_json(rule.model_dump())
+
+    return _automate_device_action
 
 
 class _ListSchedulesArgs(BaseModel):
@@ -715,6 +798,7 @@ def build_tools(user_id: int) -> list[BaseTool]:
         make_set_camera_stream_tool(user_id),
         make_send_camera_tts_tool(user_id),
         make_schedule_device_action_tool(user_id),
+        make_automate_device_action_tool(user_id),
         make_list_schedules_tool(user_id),
         make_cancel_schedule_tool(user_id),
         make_get_schedule_tasks_tool(user_id),

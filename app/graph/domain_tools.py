@@ -11,6 +11,7 @@ from langchain_core.tools import BaseTool
 from app.graph.domain_router import Domain
 from app.graph.tools import (
     build_tools,
+    make_automate_device_action_tool,
     make_cancel_schedule_tool,
     make_control_device_tool,
     make_create_alarm_tool,
@@ -83,6 +84,7 @@ def build_domain_tools(domain: Domain, user_id: int) -> list[BaseTool]:
         tools.append(make_set_camera_stream_tool(user_id))
         tools.append(make_send_camera_tts_tool(user_id))
         tools.append(make_schedule_device_action_tool(user_id))
+        tools.append(make_automate_device_action_tool(user_id))
         tools.append(make_list_schedules_tool(user_id))
         tools.append(make_cancel_schedule_tool(user_id))
         tools.append(make_get_schedule_tasks_tool(user_id))
