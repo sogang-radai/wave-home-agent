@@ -91,24 +91,172 @@ def _sleep_report_mock(user_id: int) -> list[dict[str, Any]]:
     ]
 
 
-def _schedule_task_mock(user_id: int) -> list[dict[str, Any]]:
-    return [
-        {
-            "id": 501,
-            "userId": user_id,
-            "title": "운동",
-            "createdAt": "2026-06-01 09:00:00",
-            "createdBy": "user",
-            "category": "exercise",
-            "scheduleKind": "weekly",
-            "dayOfWeek": "mon",
-            "eventDate": None,
-            "startMinute": 1260,
-            "endMinute": 1290,
-            "done": False,
-            "sourceInsightId": None,
-        }
-    ]
+# 프로젝트 루트 mock.db의 schedule_task 실 시딩 데이터(26행, user 1: 16행/user 2: 10행)를
+# 그대로 옮겨온 것 — 아래 _schedule_task_mock 은 예전엔 이걸 안 읽고 가짜 행 1개만 리턴해서,
+# 실제로는 데이터가 있는데도 인사이트 생성 시 "계획 데이터가 확인되지 않습니다"로 나오는
+# 원인이었다(mock.db 자체는 코드에서 열지 않으므로 여기 하드코딩이 유일한 소스).
+MOCK_SCHEDULE_TASKS: list[dict[str, Any]] = [
+    {"id": 1, "userId": 1, "title": "아침 스트레칭", "createdAt": "2026-05-20 09:00:00", "createdBy": "user",
+     "category": "posture", "scheduleKind": "weekly", "dayOfWeek": "mon", "eventDate": None,
+     "startMinute": 420, "endMinute": 435, "done": False, "sourceInsightId": None},
+    {"id": 2, "userId": 1, "title": "아침 스트레칭", "createdAt": "2026-05-20 09:00:00", "createdBy": "user",
+     "category": "posture", "scheduleKind": "weekly", "dayOfWeek": "tue", "eventDate": None,
+     "startMinute": 420, "endMinute": 435, "done": False, "sourceInsightId": None},
+    {"id": 3, "userId": 1, "title": "아침 스트레칭", "createdAt": "2026-05-20 09:00:00", "createdBy": "user",
+     "category": "posture", "scheduleKind": "weekly", "dayOfWeek": "wed", "eventDate": None,
+     "startMinute": 420, "endMinute": 435, "done": False, "sourceInsightId": None},
+    {"id": 4, "userId": 1, "title": "아침 스트레칭", "createdAt": "2026-05-20 09:00:00", "createdBy": "user",
+     "category": "posture", "scheduleKind": "weekly", "dayOfWeek": "thu", "eventDate": None,
+     "startMinute": 420, "endMinute": 435, "done": False, "sourceInsightId": None},
+    {"id": 5, "userId": 1, "title": "아침 스트레칭", "createdAt": "2026-05-20 09:00:00", "createdBy": "user",
+     "category": "posture", "scheduleKind": "weekly", "dayOfWeek": "fri", "eventDate": None,
+     "startMinute": 420, "endMinute": 435, "done": False, "sourceInsightId": None},
+    {"id": 6, "userId": 1, "title": "취침 전 독서", "createdAt": "2026-05-20 09:00:00", "createdBy": "user",
+     "category": "mental", "scheduleKind": "weekly", "dayOfWeek": "mon", "eventDate": None,
+     "startMinute": 1350, "endMinute": 1380, "done": False, "sourceInsightId": None},
+    {"id": 7, "userId": 1, "title": "취침 전 독서", "createdAt": "2026-05-20 09:00:00", "createdBy": "user",
+     "category": "mental", "scheduleKind": "weekly", "dayOfWeek": "tue", "eventDate": None,
+     "startMinute": 1350, "endMinute": 1380, "done": False, "sourceInsightId": None},
+    {"id": 8, "userId": 1, "title": "취침 전 독서", "createdAt": "2026-05-20 09:00:00", "createdBy": "user",
+     "category": "mental", "scheduleKind": "weekly", "dayOfWeek": "wed", "eventDate": None,
+     "startMinute": 1350, "endMinute": 1380, "done": False, "sourceInsightId": None},
+    {"id": 9, "userId": 1, "title": "취침 전 독서", "createdAt": "2026-05-20 09:00:00", "createdBy": "user",
+     "category": "mental", "scheduleKind": "weekly", "dayOfWeek": "thu", "eventDate": None,
+     "startMinute": 1350, "endMinute": 1380, "done": False, "sourceInsightId": None},
+    {"id": 10, "userId": 1, "title": "취침 전 독서", "createdAt": "2026-05-20 09:00:00", "createdBy": "user",
+     "category": "mental", "scheduleKind": "weekly", "dayOfWeek": "fri", "eventDate": None,
+     "startMinute": 1350, "endMinute": 1380, "done": False, "sourceInsightId": None},
+    {"id": 11, "userId": 1, "title": "취침 전 독서", "createdAt": "2026-05-20 09:00:00", "createdBy": "user",
+     "category": "mental", "scheduleKind": "weekly", "dayOfWeek": "sat", "eventDate": None,
+     "startMinute": 1350, "endMinute": 1380, "done": False, "sourceInsightId": None},
+    {"id": 12, "userId": 1, "title": "취침 전 독서", "createdAt": "2026-05-20 09:00:00", "createdBy": "user",
+     "category": "mental", "scheduleKind": "weekly", "dayOfWeek": "sun", "eventDate": None,
+     "startMinute": 1350, "endMinute": 1380, "done": False, "sourceInsightId": None},
+    {"id": 13, "userId": 1, "title": "주말 명상", "createdAt": "2026-05-20 09:00:00", "createdBy": "user",
+     "category": "mental", "scheduleKind": "weekly", "dayOfWeek": "sat", "eventDate": None,
+     "startMinute": 540, "endMinute": 560, "done": False, "sourceInsightId": None},
+    {"id": 14, "userId": 1, "title": "주말 명상", "createdAt": "2026-05-20 09:00:00", "createdBy": "user",
+     "category": "mental", "scheduleKind": "weekly", "dayOfWeek": "sun", "eventDate": None,
+     "startMinute": 540, "endMinute": 560, "done": False, "sourceInsightId": None},
+    {"id": 15, "userId": 1, "title": "치과 정기검진", "createdAt": "2026-05-20 09:00:00", "createdBy": "user",
+     "category": "life", "scheduleKind": "once", "dayOfWeek": "tue", "eventDate": "2026-06-16",
+     "startMinute": 840, "endMinute": 900, "done": False, "sourceInsightId": None},
+    {"id": 16, "userId": 1, "title": "여름 옷 정리", "createdAt": "2026-05-20 09:00:00", "createdBy": "user",
+     "category": "life", "scheduleKind": "once", "dayOfWeek": "sat", "eventDate": "2026-06-20",
+     "startMinute": 600, "endMinute": 690, "done": False, "sourceInsightId": None},
+    {"id": 17, "userId": 2, "title": "헬스장 운동", "createdAt": "2026-05-20 09:00:00", "createdBy": "user",
+     "category": "fitness", "scheduleKind": "weekly", "dayOfWeek": "mon", "eventDate": None,
+     "startMinute": 1140, "endMinute": 1230, "done": False, "sourceInsightId": None},
+    {"id": 18, "userId": 2, "title": "헬스장 운동", "createdAt": "2026-05-20 09:00:00", "createdBy": "user",
+     "category": "fitness", "scheduleKind": "weekly", "dayOfWeek": "wed", "eventDate": None,
+     "startMinute": 1140, "endMinute": 1230, "done": False, "sourceInsightId": None},
+    {"id": 19, "userId": 2, "title": "헬스장 운동", "createdAt": "2026-05-20 09:00:00", "createdBy": "user",
+     "category": "fitness", "scheduleKind": "weekly", "dayOfWeek": "fri", "eventDate": None,
+     "startMinute": 1140, "endMinute": 1230, "done": False, "sourceInsightId": None},
+    {"id": 20, "userId": 2, "title": "저녁 식단 관리", "createdAt": "2026-05-20 09:00:00", "createdBy": "user",
+     "category": "diet", "scheduleKind": "weekly", "dayOfWeek": "mon", "eventDate": None,
+     "startMinute": 1080, "endMinute": 1110, "done": False, "sourceInsightId": None},
+    {"id": 21, "userId": 2, "title": "저녁 식단 관리", "createdAt": "2026-05-20 09:00:00", "createdBy": "user",
+     "category": "diet", "scheduleKind": "weekly", "dayOfWeek": "tue", "eventDate": None,
+     "startMinute": 1080, "endMinute": 1110, "done": False, "sourceInsightId": None},
+    {"id": 22, "userId": 2, "title": "저녁 식단 관리", "createdAt": "2026-05-20 09:00:00", "createdBy": "user",
+     "category": "diet", "scheduleKind": "weekly", "dayOfWeek": "wed", "eventDate": None,
+     "startMinute": 1080, "endMinute": 1110, "done": False, "sourceInsightId": None},
+    {"id": 23, "userId": 2, "title": "저녁 식단 관리", "createdAt": "2026-05-20 09:00:00", "createdBy": "user",
+     "category": "diet", "scheduleKind": "weekly", "dayOfWeek": "thu", "eventDate": None,
+     "startMinute": 1080, "endMinute": 1110, "done": False, "sourceInsightId": None},
+    {"id": 24, "userId": 2, "title": "저녁 식단 관리", "createdAt": "2026-05-20 09:00:00", "createdBy": "user",
+     "category": "diet", "scheduleKind": "weekly", "dayOfWeek": "fri", "eventDate": None,
+     "startMinute": 1080, "endMinute": 1110, "done": False, "sourceInsightId": None},
+    {"id": 25, "userId": 2, "title": "주말 등산", "createdAt": "2026-05-20 09:00:00", "createdBy": "user",
+     "category": "fitness", "scheduleKind": "weekly", "dayOfWeek": "sat", "eventDate": None,
+     "startMinute": 480, "endMinute": 660, "done": False, "sourceInsightId": None},
+    {"id": 26, "userId": 2, "title": "헬스 PT 상담", "createdAt": "2026-05-20 09:00:00", "createdBy": "user",
+     "category": "fitness", "scheduleKind": "once", "dayOfWeek": "fri", "eventDate": "2026-06-05",
+     "startMinute": 1230, "endMinute": 1260, "done": False, "sourceInsightId": None},
+]
+
+
+def _schedule_task_mock(_user_id: int | None, filter_: dict[str, Any]) -> list[dict[str, Any]]:
+    items = MOCK_SCHEDULE_TASKS
+    if "userId" in filter_:
+        items = [t for t in items if t["userId"] == filter_["userId"]]
+    if "category" in filter_:
+        items = [t for t in items if t["category"] == filter_["category"]]
+    if "scheduleKind" in filter_:
+        items = [t for t in items if t["scheduleKind"] == filter_["scheduleKind"]]
+    if "dayOfWeek" in filter_:
+        items = [t for t in items if t["dayOfWeek"] == filter_["dayOfWeek"]]
+    if "done" in filter_:
+        items = [t for t in items if t["done"] == filter_["done"]]
+    if "createdBy" in filter_:
+        items = [t for t in items if t["createdBy"] == filter_["createdBy"]]
+    if "sourceInsightId" in filter_:
+        items = [t for t in items if t["sourceInsightId"] == filter_["sourceInsightId"]]
+    if "id" in filter_:
+        items = [t for t in items if t["id"] == filter_["id"]]
+    # eventDate 는 'once' 작업에만 있다 — from/to 로 그 기간에 걸리는 1회성 일정만 좁히고,
+    # 매주 반복되는 'weekly' 작업은 특정 날짜가 없으니 날짜 필터로 걸러내지 않는다.
+    date_from = filter_.get("from")
+    date_to = filter_.get("to")
+    if date_from or date_to:
+        def _in_range(t: dict[str, Any]) -> bool:
+            if t["scheduleKind"] == "weekly":
+                return True
+            event_date = t["eventDate"]
+            if event_date is None:
+                return True
+            if date_from and event_date < date_from:
+                return False
+            if date_to and event_date > date_to:
+                return False
+            return True
+
+        items = [t for t in items if _in_range(t)]
+    if "eventDate" in filter_:
+        items = [t for t in items if t["eventDate"] == filter_["eventDate"]]
+    return items
+
+
+# 위와 동일한 이유(mock.db 시딩 데이터 미반영)로 weekly_plan_report 도 예전엔 generator
+# 등록 자체가 빠져 있어 항상 count=0 이었다. mock.db 의 2026-06-22~06-30(user 1/2, 총 18행)를 옮겨온다.
+MOCK_WEEKLY_PLAN_REPORTS: list[dict[str, Any]] = [
+    {"id": 43, "userId": 1, "periodStart": "2026-06-22", "headline": "최근 7일 평균 수면 점수 77.0점", "reportText": "2026-06-16~2026-06-22(7일) 동안 평균 수면 점수는 77.0점, 평균 수면 효율은 90.0% 였어요. 지난 기간과 비교하면 비슷한 수준을 유지하고 있어요. 이 기간 특이사항: 06-16: 낮 치과 정기검진 후 약간 긴장, 평범한 밤 / 06-17: 무더위 시작 전 마지막 쾌적한 밤, B구간 마감 / 06-18: 폭염 - 입면 지연, 깊은 수면 급감, 뒤척임 증가 / 06-19: 에어컨 강화 가동, 서서히 회복 / 06-20: 주말, 여름 옷 정리 후 무난한 밤 / 06-21: 회복 지속 / 06-22: 적응 완료. 평균 가정 전력 사용량은 하루 5.67kWh 였습니다. 아침 스트레칭과 취침 전 독서 루틴을 계속 유지해보세요.", "createdAt": "2026-07-01 00:00:00"},
+    {"id": 45, "userId": 1, "periodStart": "2026-06-23", "headline": "최근 7일 평균 수면 점수 77.9점", "reportText": "2026-06-17~2026-06-23(7일) 동안 평균 수면 점수는 77.9점, 평균 수면 효율은 90.3% 였어요. 지난 기간과 비교하면 비슷한 수준을 유지하고 있어요. 이 기간 특이사항: 06-17: 무더위 시작 전 마지막 쾌적한 밤, B구간 마감 / 06-18: 폭염 - 입면 지연, 깊은 수면 급감, 뒤척임 증가 / 06-19: 에어컨 강화 가동, 서서히 회복 / 06-20: 주말, 여름 옷 정리 후 무난한 밤 / 06-21: 회복 지속 / 06-22: 적응 완료. 평균 가정 전력 사용량은 하루 6.72kWh 였습니다. 아침 스트레칭과 취침 전 독서 루틴을 계속 유지해보세요.", "createdAt": "2026-07-01 00:00:00"},
+    {"id": 47, "userId": 1, "periodStart": "2026-06-24", "headline": "최근 7일 평균 수면 점수 78.3점", "reportText": "2026-06-18~2026-06-24(7일) 동안 평균 수면 점수는 78.3점, 평균 수면 효율은 90.4% 였어요. 지난 기간과 비교하면 비슷한 수준을 유지하고 있어요. 이 기간 특이사항: 06-18: 폭염 - 입면 지연, 깊은 수면 급감, 뒤척임 증가 / 06-19: 에어컨 강화 가동, 서서히 회복 / 06-20: 주말, 여름 옷 정리 후 무난한 밤 / 06-21: 회복 지속 / 06-22: 적응 완료 / 06-24: C구간 회복 후 최고점, C구간 마감. 평균 가정 전력 사용량은 하루 6.84kWh 였습니다. 아침 스트레칭과 취침 전 독서 루틴을 계속 유지해보세요.", "createdAt": "2026-07-01 00:00:00"},
+    {"id": 49, "userId": 1, "periodStart": "2026-06-25", "headline": "최근 7일 평균 수면 점수 77.1점", "reportText": "2026-06-19~2026-06-25(7일) 동안 평균 수면 점수는 77.1점, 평균 수면 효율은 90.0% 였어요. 지난 기간과 비교하면 비슷한 수준을 유지하고 있어요. 이 기간 특이사항: 06-19: 에어컨 강화 가동, 서서히 회복 / 06-20: 주말, 여름 옷 정리 후 무난한 밤 / 06-21: 회복 지속 / 06-22: 적응 완료 / 06-24: C구간 회복 후 최고점, C구간 마감 / 06-25: 저녁 모임으로 늦은 취침 - 짧은 수면, 최저 점수. 평균 가정 전력 사용량은 하루 7.21kWh 였습니다. 아침 스트레칭과 취침 전 독서 루틴을 계속 유지해보세요.", "createdAt": "2026-07-01 00:00:00"},
+    {"id": 51, "userId": 1, "periodStart": "2026-06-26", "headline": "최근 7일 평균 수면 점수 76.9점", "reportText": "2026-06-20~2026-06-26(7일) 동안 평균 수면 점수는 76.9점, 평균 수면 효율은 89.9% 였어요. 지난 기간과 비교하면 비슷한 수준을 유지하고 있어요. 이 기간 특이사항: 06-20: 주말, 여름 옷 정리 후 무난한 밤 / 06-21: 회복 지속 / 06-22: 적응 완료 / 06-24: C구간 회복 후 최고점, C구간 마감 / 06-25: 저녁 모임으로 늦은 취침 - 짧은 수면, 최저 점수 / 06-26: 전날 여파, 피로 회복 중. 평균 가정 전력 사용량은 하루 7.17kWh 였습니다. 아침 스트레칭과 취침 전 독서 루틴을 계속 유지해보세요.", "createdAt": "2026-07-01 00:00:00"},
+    {"id": 53, "userId": 1, "periodStart": "2026-06-27", "headline": "최근 7일 평균 수면 점수 77.7점", "reportText": "2026-06-21~2026-06-27(7일) 동안 평균 수면 점수는 77.7점, 평균 수면 효율은 90.2% 였어요. 지난 기간과 비교하면 비슷한 수준을 유지하고 있어요. 이 기간 특이사항: 06-21: 회복 지속 / 06-22: 적응 완료 / 06-24: C구간 회복 후 최고점, C구간 마감 / 06-25: 저녁 모임으로 늦은 취침 - 짧은 수면, 최저 점수 / 06-26: 전날 여파, 피로 회복 중 / 06-27: 주말 장수면으로 회복. 평균 가정 전력 사용량은 하루 7.15kWh 였습니다. 아침 스트레칭과 취침 전 독서 루틴을 계속 유지해보세요.", "createdAt": "2026-07-01 00:00:00"},
+    {"id": 55, "userId": 1, "periodStart": "2026-06-28", "headline": "최근 7일 평균 수면 점수 78.9점", "reportText": "2026-06-22~2026-06-28(7일) 동안 평균 수면 점수는 78.9점, 평균 수면 효율은 90.6% 였어요. 지난 기간과 비교하면 개선되고 있어요. 이 기간 특이사항: 06-22: 적응 완료 / 06-24: C구간 회복 후 최고점, C구간 마감 / 06-25: 저녁 모임으로 늦은 취침 - 짧은 수면, 최저 점수 / 06-26: 전날 여파, 피로 회복 중 / 06-27: 주말 장수면으로 회복 / 06-28: 완전 회복, E구간 시작. 평균 가정 전력 사용량은 하루 8.11kWh 였습니다. 아침 스트레칭과 취침 전 독서 루틴을 계속 유지해보세요.", "createdAt": "2026-07-01 00:00:00"},
+    {"id": 57, "userId": 1, "periodStart": "2026-06-29", "headline": "최근 7일 평균 수면 점수 79.7점", "reportText": "2026-06-23~2026-06-29(7일) 동안 평균 수면 점수는 79.7점, 평균 수면 효율은 90.9% 였어요. 지난 기간과 비교하면 비슷한 수준을 유지하고 있어요. 이 기간 특이사항: 06-24: C구간 회복 후 최고점, C구간 마감 / 06-25: 저녁 모임으로 늦은 취침 - 짧은 수면, 최저 점수 / 06-26: 전날 여파, 피로 회복 중 / 06-27: 주말 장수면으로 회복 / 06-28: 완전 회복, E구간 시작 / 06-29: 한 달 중 최고 컨디션. 평균 가정 전력 사용량은 하루 7.58kWh 였습니다. 아침 스트레칭과 취침 전 독서 루틴을 계속 유지해보세요.", "createdAt": "2026-07-01 00:00:00"},
+    {"id": 59, "userId": 1, "periodStart": "2026-06-30", "headline": "최근 7일 평균 수면 점수 80.3점", "reportText": "2026-06-24~2026-06-30(7일) 동안 평균 수면 점수는 80.3점, 평균 수면 효율은 91.1% 였어요. 지난 기간과 비교하면 비슷한 수준을 유지하고 있어요. 이 기간 특이사항: 06-24: C구간 회복 후 최고점, C구간 마감 / 06-25: 저녁 모임으로 늦은 취침 - 짧은 수면, 최저 점수 / 06-26: 전날 여파, 피로 회복 중 / 06-27: 주말 장수면으로 회복 / 06-28: 완전 회복, E구간 시작 / 06-29: 한 달 중 최고 컨디션 / 06-30: 월말 마무리 - 전반적 개선 추세로 마감. 평균 가정 전력 사용량은 하루 6.56kWh 였습니다. 아침 스트레칭과 취침 전 독서 루틴을 계속 유지해보세요.", "createdAt": "2026-07-01 00:00:00"},
+    {"id": 44, "userId": 2, "periodStart": "2026-06-22", "headline": "최근 7일 평균 가정 전력 5.67kWh/일", "reportText": "2026-06-16~2026-06-22(7일) 동안 가정 평균 전력 사용량은 하루 5.67kWh로 지난 기간보다 비슷했어요. 이 기간 특이사항: 06-16: 낮 치과 정기검진 후 약간 긴장, 평범한 밤 / 06-17: 무더위 시작 전 마지막 쾌적한 밤, B구간 마감 / 06-18: 폭염 - 입면 지연, 깊은 수면 급감, 뒤척임 증가 / 06-19: 에어컨 강화 가동, 서서히 회복 / 06-20: 주말, 여름 옷 정리 후 무난한 밤 / 06-21: 회복 지속 / 06-22: 적응 완료. 헬스장·식단 루틴을 꾸준히 지키고 계세요. 저녁 시간 인덕션 사용에 주의해보세요.", "createdAt": "2026-07-01 00:00:00"},
+    {"id": 46, "userId": 2, "periodStart": "2026-06-23", "headline": "최근 7일 평균 가정 전력 6.72kWh/일", "reportText": "2026-06-17~2026-06-23(7일) 동안 가정 평균 전력 사용량은 하루 6.72kWh로 지난 기간보다 늘었어요. 이 기간 특이사항: 06-17: 무더위 시작 전 마지막 쾌적한 밤, B구간 마감 / 06-18: 폭염 - 입면 지연, 깊은 수면 급감, 뒤척임 증가 / 06-19: 에어컨 강화 가동, 서서히 회복 / 06-20: 주말, 여름 옷 정리 후 무난한 밤 / 06-21: 회복 지속 / 06-22: 적응 완료. 헬스장·식단 루틴을 꾸준히 지키고 계세요. 저녁 시간 인덕션 사용에 주의해보세요.", "createdAt": "2026-07-01 00:00:00"},
+    {"id": 48, "userId": 2, "periodStart": "2026-06-24", "headline": "최근 7일 평균 가정 전력 6.84kWh/일", "reportText": "2026-06-18~2026-06-24(7일) 동안 가정 평균 전력 사용량은 하루 6.84kWh로 지난 기간보다 비슷했어요. 이 기간 특이사항: 06-18: 폭염 - 입면 지연, 깊은 수면 급감, 뒤척임 증가 / 06-19: 에어컨 강화 가동, 서서히 회복 / 06-20: 주말, 여름 옷 정리 후 무난한 밤 / 06-21: 회복 지속 / 06-22: 적응 완료 / 06-24: C구간 회복 후 최고점, C구간 마감. 헬스장·식단 루틴을 꾸준히 지키고 계세요. 저녁 시간 인덕션 사용에 주의해보세요.", "createdAt": "2026-07-01 00:00:00"},
+    {"id": 50, "userId": 2, "periodStart": "2026-06-25", "headline": "최근 7일 평균 가정 전력 7.21kWh/일", "reportText": "2026-06-19~2026-06-25(7일) 동안 가정 평균 전력 사용량은 하루 7.21kWh로 지난 기간보다 늘었어요. 이 기간 특이사항: 06-19: 에어컨 강화 가동, 서서히 회복 / 06-20: 주말, 여름 옷 정리 후 무난한 밤 / 06-21: 회복 지속 / 06-22: 적응 완료 / 06-24: C구간 회복 후 최고점, C구간 마감 / 06-25: 저녁 모임으로 늦은 취침 - 짧은 수면, 최저 점수. 헬스장·식단 루틴을 꾸준히 지키고 계세요. 저녁 시간 인덕션 사용에 주의해보세요.", "createdAt": "2026-07-01 00:00:00"},
+    {"id": 52, "userId": 2, "periodStart": "2026-06-26", "headline": "최근 7일 평균 가정 전력 7.17kWh/일", "reportText": "2026-06-20~2026-06-26(7일) 동안 가정 평균 전력 사용량은 하루 7.17kWh로 지난 기간보다 비슷했어요. 이 기간 특이사항: 06-20: 주말, 여름 옷 정리 후 무난한 밤 / 06-21: 회복 지속 / 06-22: 적응 완료 / 06-24: C구간 회복 후 최고점, C구간 마감 / 06-25: 저녁 모임으로 늦은 취침 - 짧은 수면, 최저 점수 / 06-26: 전날 여파, 피로 회복 중. 헬스장·식단 루틴을 꾸준히 지키고 계세요. 저녁 시간 인덕션 사용에 주의해보세요.", "createdAt": "2026-07-01 00:00:00"},
+    {"id": 54, "userId": 2, "periodStart": "2026-06-27", "headline": "최근 7일 평균 가정 전력 7.15kWh/일", "reportText": "2026-06-21~2026-06-27(7일) 동안 가정 평균 전력 사용량은 하루 7.15kWh로 지난 기간보다 비슷했어요. 이 기간 특이사항: 06-21: 회복 지속 / 06-22: 적응 완료 / 06-24: C구간 회복 후 최고점, C구간 마감 / 06-25: 저녁 모임으로 늦은 취침 - 짧은 수면, 최저 점수 / 06-26: 전날 여파, 피로 회복 중 / 06-27: 주말 장수면으로 회복. 헬스장·식단 루틴을 꾸준히 지키고 계세요. 저녁 시간 인덕션 사용에 주의해보세요.", "createdAt": "2026-07-01 00:00:00"},
+    {"id": 56, "userId": 2, "periodStart": "2026-06-28", "headline": "최근 7일 평균 가정 전력 8.11kWh/일", "reportText": "2026-06-22~2026-06-28(7일) 동안 가정 평균 전력 사용량은 하루 8.11kWh로 지난 기간보다 늘었어요. 이 기간 특이사항: 06-22: 적응 완료 / 06-24: C구간 회복 후 최고점, C구간 마감 / 06-25: 저녁 모임으로 늦은 취침 - 짧은 수면, 최저 점수 / 06-26: 전날 여파, 피로 회복 중 / 06-27: 주말 장수면으로 회복 / 06-28: 완전 회복, E구간 시작. 헬스장·식단 루틴을 꾸준히 지키고 계세요. 저녁 시간 인덕션 사용에 주의해보세요.", "createdAt": "2026-07-01 00:00:00"},
+    {"id": 58, "userId": 2, "periodStart": "2026-06-29", "headline": "최근 7일 평균 가정 전력 7.58kWh/일", "reportText": "2026-06-23~2026-06-29(7일) 동안 가정 평균 전력 사용량은 하루 7.58kWh로 지난 기간보다 줄었어요. 이 기간 특이사항: 06-24: C구간 회복 후 최고점, C구간 마감 / 06-25: 저녁 모임으로 늦은 취침 - 짧은 수면, 최저 점수 / 06-26: 전날 여파, 피로 회복 중 / 06-27: 주말 장수면으로 회복 / 06-28: 완전 회복, E구간 시작 / 06-29: 한 달 중 최고 컨디션. 헬스장·식단 루틴을 꾸준히 지키고 계세요. 저녁 시간 인덕션 사용에 주의해보세요.", "createdAt": "2026-07-01 00:00:00"},
+    {"id": 60, "userId": 2, "periodStart": "2026-06-30", "headline": "최근 7일 평균 가정 전력 6.56kWh/일", "reportText": "2026-06-24~2026-06-30(7일) 동안 가정 평균 전력 사용량은 하루 6.56kWh로 지난 기간보다 줄었어요. 이 기간 특이사항: 06-24: C구간 회복 후 최고점, C구간 마감 / 06-25: 저녁 모임으로 늦은 취침 - 짧은 수면, 최저 점수 / 06-26: 전날 여파, 피로 회복 중 / 06-27: 주말 장수면으로 회복 / 06-28: 완전 회복, E구간 시작 / 06-29: 한 달 중 최고 컨디션 / 06-30: 월말 마무리 - 전반적 개선 추세로 마감. 헬스장·식단 루틴을 꾸준히 지키고 계세요. 저녁 시간 인덕션 사용에 주의해보세요.", "createdAt": "2026-07-01 00:00:00"},
+]
+
+
+def _weekly_plan_report_mock(_user_id: int | None, filter_: dict[str, Any]) -> list[dict[str, Any]]:
+    items = MOCK_WEEKLY_PLAN_REPORTS
+    if "userId" in filter_:
+        items = [r for r in items if r["userId"] == filter_["userId"]]
+    if "periodStart" in filter_:
+        items = [r for r in items if r["periodStart"] == filter_["periodStart"]]
+    date_from = filter_.get("from")
+    date_to = filter_.get("to")
+    if date_from:
+        items = [r for r in items if r["periodStart"] >= date_from]
+    if date_to:
+        items = [r for r in items if r["periodStart"] <= date_to]
+    if "id" in filter_:
+        items = [r for r in items if r["id"] == filter_["id"]]
+    return items
 
 
 # device-tool-api.md §설계 원칙 4: roomId+장치이름 해석은 device/device_room_map 조회로 처리한다.
@@ -299,16 +447,18 @@ _MOCK_GENERATORS = {
     "sleep_session": _sleep_session_mock,
     "sleep_stat": _sleep_stat_mock,
     "sleep_report": _sleep_report_mock,
-    "schedule_task": _schedule_task_mock,
 }
 
-# device/device_room_map/device_user_map/room/room_user_map 목업은 filter 를 참조해야 해서 별도 딕셔너리로 분리.
+# device/device_room_map/device_user_map/room/room_user_map/schedule_task/weekly_plan_report
+# 목업은 filter 를 참조해야 해서 별도 딕셔너리로 분리.
 _FILTER_AWARE_MOCK_GENERATORS = {
     "device": _device_mock,
     "device_room_map": _device_room_map_mock,
     "device_user_map": _device_user_map_mock,
     "room": _room_mock,
     "room_user_map": _room_user_map_mock,
+    "schedule_task": _schedule_task_mock,
+    "weekly_plan_report": _weekly_plan_report_mock,
 }
 
 

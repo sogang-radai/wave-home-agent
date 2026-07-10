@@ -45,7 +45,7 @@ def build_tool_loop(
         llm = get_llm(state.get("model"))
         rounds = state.get("rounds", 0)
         if llm is None:
-            return {"messages": [AIMessage(content=NO_LLM_FALLBACK_TEXT)], "rounds": rounds + 1}
+            return {"messages": [AIMessage(content=NO_LLM_FALLBACK_TEXT)]}
 
         # Once the round budget is spent, drop tool binding so the model is
         # forced to produce a final text answer instead of requesting yet
@@ -53,7 +53,7 @@ def build_tool_loop(
         bound = llm.bind_tools(tools) if rounds < max_rounds else llm
         system = SystemMessage(content=system_prompt_fn(state))
         response = await bound.ainvoke([system, *state["messages"]])
-        return {"messages": [response], "rounds": rounds + 1}
+        return {"messages": [response]}
 
     async def tool_node(state: dict[str, Any]) -> dict[str, Any]:
         last = state["messages"][-1]
@@ -78,7 +78,10 @@ def build_tool_loop(
                 results.append(
                     ToolMessage(content=str(exc), tool_call_id=call["id"], name=call["name"], status="error")
                 )
-        return {"messages": results}
+        # rounds 는 여기서(tool 실행 완료 시점) 올린다 — agent_node 에서 올리면 방금 만든
+        # tool_call 이 실행되기도 전에 예산이 소진돼 should_continue 가 END 로 보내버려서,
+        # max_rounds 로 약속한 왕복 횟수보다 실제로 1번 적게 실행되는 off-by-one 버그가 있었다.
+        return {"messages": results, "rounds": state.get("rounds", 0) + 1}
 
     def should_continue(state: dict[str, Any]) -> str:
         last = state["messages"][-1]

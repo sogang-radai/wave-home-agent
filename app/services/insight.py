@@ -24,7 +24,7 @@ _graph = build_insight_graph()
 def create_insight_job(body: InsightGenerationRequest) -> JobRef:
     dedupe_key = f"{INSIGHT_KIND}:{body.userId}:{body.surface}:{body.date}"
     job = create_job_or_409(INSIGHT_KIND, dedupe_key=dedupe_key)
-    spawn(_run_generation(job.job_id, body))
+    spawn(_run_generation(job.job_id, body), job_id=job.job_id)
     return JobRef(jobId=job.job_id)
 
 

@@ -8,7 +8,7 @@
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.tools.rules_internal import CreateRuleRequest
 from app.tools.schedule_tasks_internal import CreateScheduleTaskRequest
@@ -39,6 +39,21 @@ class GeneratedInsight(BaseModel):
     ruleJson: Optional[CreateRuleRequest] = None
     scheduleTaskJson: Optional[CreateScheduleTaskRequest] = None
     embedding: Optional[list[float]] = None
+
+    @model_validator(mode="after")
+    def _backfill_action_type(self) -> "GeneratedInsight":
+        """LLM이 ruleJson/scheduleTaskJson 은 채우면서 actionType(과 actionable)을
+        빠뜨리는 경우가 있어(app/prompts/insight/generate.txt 로 지시해도 경량 모델에서
+        재현됨), 이미 채워진 필드로부터 역으로 보정한다 — 어느 쪽이 채워졌는지가
+        actionType 의 유일한 근거이므로 값을 지어내는 게 아니라 일관성만 맞추는 것이다."""
+        if self.actionType is None:
+            if self.scheduleTaskJson is not None:
+                self.actionType = "schedule_task"
+            elif self.ruleJson is not None:
+                self.actionType = "automation_rule"
+        if self.actionType is not None and not self.actionable:
+            self.actionable = True
+        return self
 
 
 class GeneratedInsightBatch(BaseModel):

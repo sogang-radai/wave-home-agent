@@ -27,7 +27,7 @@ def create_report_job(body: WeeklyPlanReportRequest) -> JobRef:
 
     dedupe_key = f"{REPORT_KIND}:{body.userId}:{body.periodStart}"
     job = create_job_or_409(REPORT_KIND, dedupe_key=dedupe_key)
-    spawn(_run_report(job.job_id, body))
+    spawn(_run_report(job.job_id, body), job_id=job.job_id)
     return JobRef(jobId=job.job_id)
 
 

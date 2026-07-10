@@ -13,5 +13,6 @@ $extra_context
 - actionable=true 인 경우에만 actionType 을 schedule_task|automation_rule|reservation 중 하나로 채우고,
   actionType="schedule_task" 면 scheduleTaskJson 을, actionType="automation_rule" 이면 ruleJson 을
   실제로 적용 가능한 형태로 채우세요(모르면 actionable=false 로 두세요).
-- 조회되지 않은 수치를 지어내지 마세요. 데이터가 부족하면 인사이트 개수를 줄이세요.
+- 조회되지 않은 수치를 지어내지 마세요. 데이터가 부족하면(actionable 항목을 제외한) 인사이트 개수를 줄이세요.
 - items 는 1~3개로 제한하세요.
+$actionable_requirement$retry_feedback

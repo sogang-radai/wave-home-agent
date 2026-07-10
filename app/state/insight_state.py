@@ -11,4 +11,5 @@ class InsightGenerationState(TypedDict, total=False):
     date: str
     context: dict[str, Any]
     rounds: int
+    generate_attempts: int
     items: list[dict[str, Any]]

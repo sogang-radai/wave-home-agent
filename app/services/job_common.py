@@ -27,7 +27,25 @@ GenerateEmbeddingFn = Callable[[str, Optional[str]], Awaitable[tuple[Any, str]]]
 _background_tasks: set[asyncio.Task] = set()
 
 
-def spawn(coro: Awaitable[None]) -> None:
+async def _run_guarded(job_id: str, coro: Awaitable[None]) -> None:
+    """spawn() 이 백그라운드 태스크로 도는 job 코루틴을 감싸는 최후의 안전망.
+
+    각 _run_* 함수 내부(invoke_text/invoke_structured, apply_embedding)는 이미 알려진
+    실패를 잡아 job_store.fail 을 부르지만, tool_loop.py의 gather 노드가 쓰는 LLM 호출
+    (app/graph/tool_loop.py 의 agent_node 안 bound.ainvoke)처럼 try/except 로 안 감싸인
+    지점에서 예외가 나면 아무도 job_store.fail/complete 를 안 불러서 job 이 영원히
+    "running" 상태로 멈춰버린다(클라이언트는 폴링만 계속하게 됨). 여기서 잡아서
+    반드시 done/failed 로 끝나게 만든다."""
+    try:
+        await coro
+    except Exception:
+        logger.exception("job crashed with an unhandled exception: id=%s", job_id)
+        job_store.fail(job_id, {"code": "GENERATION_FAILED", "message": "요청 처리 중 오류가 발생했습니다."})
+
+
+def spawn(coro: Awaitable[None], *, job_id: Optional[str] = None) -> None:
+    if job_id is not None:
+        coro = _run_guarded(job_id, coro)
     task = asyncio.create_task(coro)
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
