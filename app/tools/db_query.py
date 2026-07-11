@@ -91,6 +91,39 @@ def _sleep_report_mock(user_id: int) -> list[dict[str, Any]]:
     ]
 
 
+# 별개 기능(추후 작업)에서 쓸 user_action_log 용 임시 mock — 다른 테이블처럼 mock.db 실 시딩
+# 데이터가 없어 그럴싸한 가짜 행 몇 개만 둔다. schedule_task_mock 과 동일하게 filter-aware.
+MOCK_USER_ACTION_LOGS: list[dict[str, Any]] = [
+    {"id": 1, "userId": 1, "actionType": "insight_applied", "refType": "insight", "refId": 2001,
+     "occurredAt": "2026-07-09 08:15:00", "metadataJson": None},
+    {"id": 2, "userId": 1, "actionType": "schedule_task_completed", "refType": "schedule_task", "refId": 1,
+     "occurredAt": "2026-07-10 07:05:00", "metadataJson": None},
+    {"id": 3, "userId": 2, "actionType": "schedule_task_created", "refType": "schedule_task", "refId": 20,
+     "occurredAt": "2026-07-10 21:40:00", "metadataJson": None},
+]
+
+
+def _user_action_log_mock(_user_id: int | None, filter_: dict[str, Any]) -> list[dict[str, Any]]:
+    items = MOCK_USER_ACTION_LOGS
+    if "userId" in filter_:
+        items = [a for a in items if a["userId"] == filter_["userId"]]
+    if "actionType" in filter_:
+        items = [a for a in items if a["actionType"] == filter_["actionType"]]
+    if "refType" in filter_:
+        items = [a for a in items if a["refType"] == filter_["refType"]]
+    if "refId" in filter_:
+        items = [a for a in items if a["refId"] == filter_["refId"]]
+    if "id" in filter_:
+        items = [a for a in items if a["id"] == filter_["id"]]
+    date_from = filter_.get("from")
+    date_to = filter_.get("to")
+    if date_from:
+        items = [a for a in items if a["occurredAt"] >= date_from]
+    if date_to:
+        items = [a for a in items if a["occurredAt"] <= date_to]
+    return items
+
+
 # 프로젝트 루트 mock.db의 schedule_task 실 시딩 데이터(26행, user 1: 16행/user 2: 10행)를
 # 그대로 옮겨온 것 — 아래 _schedule_task_mock 은 예전엔 이걸 안 읽고 가짜 행 1개만 리턴해서,
 # 실제로는 데이터가 있는데도 인사이트 생성 시 "계획 데이터가 확인되지 않습니다"로 나오는
@@ -441,6 +474,10 @@ TABLE_SPECS: dict[str, _TableSpec] = {
             "id", "userId", "surface", "kind", "date", "actionable", "actionType", "approved", "from", "to",
         },
     ),
+    "user_action_log": _TableSpec(
+        required_any={"userId"},
+        allowed={"id", "userId", "actionType", "refType", "refId", "from", "to"},
+    ),
 }
 
 _MOCK_GENERATORS = {
@@ -459,6 +496,7 @@ _FILTER_AWARE_MOCK_GENERATORS = {
     "room_user_map": _room_user_map_mock,
     "schedule_task": _schedule_task_mock,
     "weekly_plan_report": _weekly_plan_report_mock,
+    "user_action_log": _user_action_log_mock,
 }
 
 
