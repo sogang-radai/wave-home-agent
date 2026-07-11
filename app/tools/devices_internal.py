@@ -758,7 +758,7 @@ async def fetch_device_id_maps() -> tuple[dict[int, str], dict[str, int]]:
     id_to_external: dict[int, str] = {}
     external_to_id: dict[str, int] = {}
     for item in result.items:
-        external_id = item.get("externalId")
+        external_id = item.get("wireId")
         if not external_id:
             continue
         id_to_external[item["id"]] = external_id

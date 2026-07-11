@@ -381,10 +381,14 @@ def _rulejson_device_ids_to_wire(
     zero-pad 공식으로 만든 값은 rules 생성 API 는 그냥 문자열이라 받아주지만(201), 실행
     시점에 trigger_manager.cpp/action_queue.cpp 가 dev::parseDeviceID() 로 그 문자열을 정수로
     파싱해 deviceManager 에서 직접 찾기 때문에(DB 폴백 조회 없음) 못 찾아서 자동화가 조용히
-    실행되지 않는다(직접 재현 확인). 그래서 db/query 가 이미 돌려준 실제 device.externalId 를
-    그대로 쓴다. 매핑에 없으면(예: mock 모드처럼 externalId 필드 자체가 없는 경우) 원래 int
-    를 그대로 둔다 - 뭘 넣어도 확실하지 않을 땐 지어내지 않는다."""
-    external_id_by_id = {device["id"]: device.get("externalId") for device in devices}
+    실행되지 않는다(직접 재현 확인). 그래서 db/query 가 이미 돌려준 실제 device.wireId 를
+    그대로 쓴다. 매핑에 없으면(예: mock 모드처럼 wireId 필드 자체가 없는 경우) 원래 int
+    를 그대로 둔다 - 뭘 넣어도 확실하지 않을 땐 지어내지 않는다.
+
+    device 필드명은 real backend db_query_store.cpp 기준 "wireId"다(예전에는 "externalId"인
+    device.external_id DB 컬럼을 그대로 내려줬으나, wireId 로 이름이 바뀌고 db_id 로부터
+    계산되는 값으로 바뀌었다 — 2026-07-11 리네임, db_query_store.cpp 커밋 34e65bd 참고)."""
+    external_id_by_id = {device["id"]: device.get("wireId") for device in devices}
     for item in items:
         rule = item.get("ruleJson")
         if not rule:
