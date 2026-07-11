@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from app.clients.core import CoreApiClient, ToolError
 from app.config import get_settings
 from app.tools.device_id import device_id_to_hex_or_none, hex_to_device_id_or_none
+from app.tools.devices_internal import fetch_device_id_maps
 from app.tools.errors import InternalApiError
 from app.tools.schedule_tasks_internal import DayOfWeek
 
@@ -97,19 +98,35 @@ def _raise_from_tool_error(exc: ToolError) -> None:
     raise InternalApiError(exc.code or "CORE_API_UNAVAILABLE", str(exc), detail=exc.detail) from exc
 
 
-def _alarm_to_wire(data: dict[str, Any]) -> dict[str, Any]:
+def _to_wire_id(device_id: Optional[int], id_to_external: dict[int, str]) -> Optional[str]:
+    if device_id is None:
+        return None
+    return id_to_external.get(device_id, device_id_to_hex_or_none(device_id))
+
+
+def _from_wire_id(wire_id: Optional[str], external_to_id: dict[str, int]) -> Optional[int]:
+    if wire_id is None:
+        return None
+    return external_to_id.get(wire_id, hex_to_device_id_or_none(wire_id))
+
+
+def _alarm_to_wire(data: dict[str, Any], id_to_external: dict[int, str]) -> dict[str, Any]:
+    # device_id_to_hex_or_none()(zero-pad 공식)를 여기서 직접 쓰지 않는다 - real backend 의
+    # externalId 는 그 공식으로 못 구하고, 공식으로 만든 값은 알람 생성은 성공해도 발동
+    # 시점에 조용히 실패한다(rules_internal.py 와 동일 원인, devices_internal.fetch_device_id_maps
+    # 참고). id_to_external 이 devices_internal.fetch_device_id_maps() 의 실제 조회 결과다.
     data = dict(data)
     if "radarDeviceId" in data:
-        data["radarDeviceId"] = device_id_to_hex_or_none(data["radarDeviceId"])
+        data["radarDeviceId"] = _to_wire_id(data["radarDeviceId"], id_to_external)
     if "deviceId" in data:
-        data["deviceId"] = device_id_to_hex_or_none(data["deviceId"])
+        data["deviceId"] = _to_wire_id(data["deviceId"], id_to_external)
     return data
 
 
-def _alarm_from_wire(item: dict[str, Any]) -> Alarm:
+def _alarm_from_wire(item: dict[str, Any], external_to_id: dict[str, int]) -> Alarm:
     item = dict(item)
-    item["radarDeviceId"] = hex_to_device_id_or_none(item.get("radarDeviceId"))
-    item["deviceId"] = hex_to_device_id_or_none(item.get("deviceId"))
+    item["radarDeviceId"] = _from_wire_id(item.get("radarDeviceId"), external_to_id)
+    item["deviceId"] = _from_wire_id(item.get("deviceId"), external_to_id)
     return Alarm.model_validate(item)
 
 
@@ -148,7 +165,8 @@ async def get_alarms(user_id: int, *, enabled: Optional[bool] = None) -> list[Al
         response = await client.get("/alarms", params)
     except ToolError as exc:
         _raise_from_tool_error(exc)
-    return [_alarm_from_wire(item) for item in response]
+    _, external_to_id = await fetch_device_id_maps()
+    return [_alarm_from_wire(item, external_to_id) for item in response]
 
 
 async def create_alarm(req: CreateAlarmRequest) -> Alarm:
@@ -160,11 +178,14 @@ async def create_alarm(req: CreateAlarmRequest) -> Alarm:
         _MOCK_ALARMS.append(alarm)
         return alarm
 
+    id_to_external, external_to_id = await fetch_device_id_maps()
     try:
-        response = await client.post("/alarms", json=_alarm_to_wire(req.model_dump(exclude_none=True)))
+        response = await client.post(
+            "/alarms", json=_alarm_to_wire(req.model_dump(exclude_none=True), id_to_external)
+        )
     except ToolError as exc:
         _raise_from_tool_error(exc)
-    return _alarm_from_wire(response)
+    return _alarm_from_wire(response, external_to_id)
 
 
 async def update_alarm(alarm_id: int, user_id: int, **fields: Any) -> Alarm:
@@ -177,11 +198,14 @@ async def update_alarm(alarm_id: int, user_id: int, **fields: Any) -> Alarm:
                 return updated
         raise InternalApiError("NOT_FOUND", f"id={alarm_id} 인 알람을 찾을 수 없습니다.")
 
+    id_to_external, external_to_id = await fetch_device_id_maps()
     try:
-        response = await client.patch(f"/alarms/{alarm_id}", json=_alarm_to_wire(fields), params={"userId": user_id})
+        response = await client.patch(
+            f"/alarms/{alarm_id}", json=_alarm_to_wire(fields, id_to_external), params={"userId": user_id}
+        )
     except ToolError as exc:
         _raise_from_tool_error(exc)
-    return _alarm_from_wire(response)
+    return _alarm_from_wire(response, external_to_id)
 
 
 async def delete_alarm(alarm_id: int, user_id: int) -> int:

@@ -14,6 +14,7 @@ from app.clients.core import CoreApiClient, ToolError
 from app.config import get_settings
 from app.tools.device_id import device_id_to_hex, hex_to_device_id
 from app.tools.errors import InternalApiError
+from app.tools.devices_internal import fetch_device_id_maps
 
 
 # ── 타입 (device-tool-api.md §타입) ─────────────────────────────────────────
@@ -147,37 +148,50 @@ def _raise_from_tool_error(exc: ToolError) -> None:
 
 
 # ── hex<->int 재귀 변환 헬퍼 (trigger/action 내부까지) ───────────────────────
+# id_to_external/external_to_id 는 devices_internal.fetch_device_id_maps() 가 돌려주는 실제
+# DB 조회 결과다. device_id_to_hex()/hex_to_device_id()(zero-pad 공식)는 여기서 쓰지 않는다 -
+# real backend 의 externalId 는 그 공식으로 못 구하고(device_list.json 에 박힌 임의값),
+# 공식으로 만든 값은 룰 생성은 성공해도 실행 시점에 조용히 실패한다(실측 확인). 매핑에
+# 없는 경우에만(마이그레이션 전 레거시 데이터 등, 흔치 않음) 공식을 최후 수단으로 쓴다.
 
 
-def _trigger_to_wire(trigger: Optional[RuleTrigger]) -> Optional[dict[str, Any]]:
+def _trigger_to_wire(trigger: Optional[RuleTrigger], id_to_external: dict[int, str]) -> Optional[dict[str, Any]]:
     if trigger is None:
         return None
     data = trigger.model_dump()
-    data["deviceId"] = device_id_to_hex(data["deviceId"])
+    data["deviceId"] = id_to_external.get(data["deviceId"], device_id_to_hex(data["deviceId"]))
     return data
 
 
-def _action_to_wire(action: RuleAction) -> dict[str, Any]:
+def _action_to_wire(action: RuleAction, id_to_external: dict[int, str]) -> dict[str, Any]:
     data = action.model_dump()
-    data["deviceId"] = device_id_to_hex(data["deviceId"])
+    data["deviceId"] = id_to_external.get(data["deviceId"], device_id_to_hex(data["deviceId"]))
     return data
 
 
-def _rule_to_wire(req: Union[CreateRuleRequest, UpdateRuleRequest]) -> dict[str, Any]:
+def _rule_to_wire(
+    req: Union[CreateRuleRequest, UpdateRuleRequest], id_to_external: dict[int, str]
+) -> dict[str, Any]:
     data = req.model_dump(exclude_none=True)
     if "trigger" in data and data["trigger"] is not None:
-        data["trigger"]["deviceId"] = device_id_to_hex(data["trigger"]["deviceId"])
+        data["trigger"]["deviceId"] = id_to_external.get(
+            data["trigger"]["deviceId"], device_id_to_hex(data["trigger"]["deviceId"])
+        )
     if "action" in data and data["action"] is not None:
-        data["action"]["deviceId"] = device_id_to_hex(data["action"]["deviceId"])
+        data["action"]["deviceId"] = id_to_external.get(
+            data["action"]["deviceId"], device_id_to_hex(data["action"]["deviceId"])
+        )
     return data
 
 
-def _rule_from_wire(item: dict[str, Any]) -> RuleView:
+def _rule_from_wire(item: dict[str, Any], external_to_id: dict[str, int]) -> RuleView:
     item = dict(item)
     if item.get("trigger"):
-        item["trigger"] = {**item["trigger"], "deviceId": hex_to_device_id(item["trigger"]["deviceId"])}
+        wire_id = item["trigger"]["deviceId"]
+        item["trigger"] = {**item["trigger"], "deviceId": external_to_id.get(wire_id, hex_to_device_id(wire_id))}
     if item.get("action"):
-        item["action"] = {**item["action"], "deviceId": hex_to_device_id(item["action"]["deviceId"])}
+        wire_id = item["action"]["deviceId"]
+        item["action"] = {**item["action"], "deviceId": external_to_id.get(wire_id, hex_to_device_id(wire_id))}
     return RuleView.model_validate(item)
 
 
@@ -275,10 +289,11 @@ async def list_rules(
             items = [r for r in items if (r.trigger is not None) == has_trigger]
         return items
 
+    id_to_external, external_to_id = await fetch_device_id_maps()
     params = {
         k: v
         for k, v in {
-            "deviceId": device_id_to_hex(device_id) if device_id is not None else None,
+            "deviceId": id_to_external.get(device_id, device_id_to_hex(device_id)) if device_id is not None else None,
             "enabled": enabled,
             "hasSchedule": has_schedule,
             "hasTrigger": has_trigger,
@@ -289,7 +304,7 @@ async def list_rules(
         response = await client.get("/rules", params)
     except ToolError as exc:
         _raise_from_tool_error(exc)
-    return [_rule_from_wire(item) for item in response.get("items", [])]
+    return [_rule_from_wire(item, external_to_id) for item in response.get("items", [])]
 
 
 async def get_rule(rule_id: str) -> RuleView:
@@ -304,7 +319,8 @@ async def get_rule(rule_id: str) -> RuleView:
         response = await client.get(f"/rules/{rule_id}")
     except ToolError as exc:
         _raise_from_tool_error(exc)
-    return _rule_from_wire(response)
+    _, external_to_id = await fetch_device_id_maps()
+    return _rule_from_wire(response, external_to_id)
 
 
 async def create_rule(req: CreateRuleRequest) -> RuleView:
@@ -318,11 +334,12 @@ async def create_rule(req: CreateRuleRequest) -> RuleView:
         _MOCK_RULES.append(rule)
         return rule
 
+    id_to_external, external_to_id = await fetch_device_id_maps()
     try:
-        response = await client.post("/rules", json=_rule_to_wire(req))
+        response = await client.post("/rules", json=_rule_to_wire(req, id_to_external))
     except ToolError as exc:
         _raise_from_tool_error(exc)
-    return _rule_from_wire(response)
+    return _rule_from_wire(response, external_to_id)
 
 
 async def update_rule(rule_id: str, req: UpdateRuleRequest) -> RuleView:
@@ -335,11 +352,12 @@ async def update_rule(rule_id: str, req: UpdateRuleRequest) -> RuleView:
                 return updated
         raise InternalApiError("NOT_FOUND", f"ruleId={rule_id} 인 룰을 찾을 수 없습니다.")
 
+    id_to_external, external_to_id = await fetch_device_id_maps()
     try:
-        response = await client.put(f"/rules/{rule_id}", json=_rule_to_wire(req))
+        response = await client.put(f"/rules/{rule_id}", json=_rule_to_wire(req, id_to_external))
     except ToolError as exc:
         _raise_from_tool_error(exc)
-    return _rule_from_wire(response)
+    return _rule_from_wire(response, external_to_id)
 
 
 async def delete_rule(rule_id: str) -> None:
@@ -366,7 +384,8 @@ async def set_rule_enabled(rule_id: str, enabled: bool) -> RuleView:
         response = await client.put(f"/rules/{rule_id}/enabled", json={"enabled": enabled})
     except ToolError as exc:
         _raise_from_tool_error(exc)
-    return _rule_from_wire(response)
+    _, external_to_id = await fetch_device_id_maps()
+    return _rule_from_wire(response, external_to_id)
 
 
 async def execute_rule(rule_id: str) -> dict[str, Any]:
@@ -449,11 +468,12 @@ async def list_events(
             items = [e for e in items if e.deviceId == device_id]
         return items[:limit]
 
+    id_to_external, external_to_id = await fetch_device_id_maps()
     params: dict[str, Any] = {"limit": limit}
     if types:
         params["types"] = ",".join(types)
     if device_id is not None:
-        params["deviceId"] = device_id_to_hex(device_id)
+        params["deviceId"] = id_to_external.get(device_id, device_id_to_hex(device_id))
     if from_ is not None:
         params["from"] = from_
     if to is not None:
@@ -465,7 +485,14 @@ async def list_events(
     items = response.get("items", [])
     return [
         DeviceEvent.model_validate(
-            {**item, "deviceId": hex_to_device_id(item["deviceId"]) if item.get("deviceId") else None}
+            {
+                **item,
+                "deviceId": (
+                    external_to_id.get(item["deviceId"], hex_to_device_id(item["deviceId"]))
+                    if item.get("deviceId")
+                    else None
+                ),
+            }
         )
         for item in items
     ]

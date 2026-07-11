@@ -735,3 +735,32 @@ async def resolve_device_id(room_id: int, name: str, *, user_id: Optional[int] =
             detail={"matches": [{"id": m["id"], "name": m["name"]} for m in matches]},
         )
     return int(matches[0]["id"])
+
+
+async def fetch_device_id_maps() -> tuple[dict[int, str], dict[str, int]]:
+    """int id <-> 실제 externalId(16자리 hex) 양방향 매핑을 조회한다.
+
+    app/tools/device_id.py 의 device_id_to_hex()/hex_to_device_id() 는 zero-pad 공식
+    (예: 4 -> "0000000000000004")이라, real backend 의 externalId(device_list.json 에
+    박힌 임의의 64bit 값, 예: "6b0f3e8a92c47d15")와 다르다. rules_internal.py(automation_rule)
+    ·alarms_internal.py(alarm) 는 deviceId 를 JSON 안에 저장했다가 나중에(트리거 발동 시점)
+    별도 경로에서 그 문자열을 그대로 정수로 파싱해 라이브 장치 매니저에서 찾기 때문에
+    (DB 폴백 조회 없음), 공식으로 만든 값을 넣으면 생성 자체는 성공해도 실행 시점에
+    조용히 실패한다(실측 확인). 그래서 이 두 모듈은 반드시 이 함수가 돌려주는 실제
+    조회값을 써야 한다. mock 모드에서는 호출되지 않는다(각 호출부가 mock 분기에서
+    일찍 반환하므로 wire 변환 자체가 필요 없음)."""
+    from app.tools.db_query import DbQuery, query_db
+
+    [result] = await query_db([DbQuery(table="device", filter={"archived": 0})])
+    if result.error is not None:
+        return {}, {}
+
+    id_to_external: dict[int, str] = {}
+    external_to_id: dict[str, int] = {}
+    for item in result.items:
+        external_id = item.get("externalId")
+        if not external_id:
+            continue
+        id_to_external[item["id"]] = external_id
+        external_to_id[external_id] = item["id"]
+    return id_to_external, external_to_id
