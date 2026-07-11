@@ -13,3 +13,5 @@ class InsightGenerationState(TypedDict, total=False):
     rounds: int
     generate_attempts: int
     items: list[dict[str, Any]]
+    devices: list[dict[str, Any]]
+    action_names_by_class: dict[str, set[str]]

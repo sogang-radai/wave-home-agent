@@ -7,12 +7,25 @@ $context
 [조회된 참고 데이터]
 $extra_context
 
+[등록된 장치 목록 (automation_rule 의 deviceId/action.name 은 반드시 이 중에서만 선택. 각
+장치의 "actions" 배열이 그 장치에서 실제로 실행 가능한 action 이름 전부입니다)]
+$devices
+
 각 인사이트는 다음을 만족해야 합니다:
 - title: 짧은 제목, text: 1~2문장 본문
-- kind: banner(요약 배너) | action(실행 제안) | goal(목표 제시) | tip(팁)
+- kind: action(실행 제안) | goal(목표 제시) | tip(팁)
 - actionable=true 인 경우에만 actionType 을 schedule_task|automation_rule|reservation 중 하나로 채우고,
   actionType="schedule_task" 면 scheduleTaskJson 을, actionType="automation_rule" 이면 ruleJson 을
   실제로 적용 가능한 형태로 채우세요(모르면 actionable=false 로 두세요).
 - 조회되지 않은 수치를 지어내지 마세요. 데이터가 부족하면(actionable 항목을 제외한) 인사이트 개수를 줄이세요.
+- actionType="automation_rule" 로 ruleJson.action 을 채울 때는 반드시 위 [등록된 장치 목록]에
+  실제로 나온 device.id 를 deviceId 로, 그 장치의 "actions" 배열에 있는 이름만 action.name 으로
+  쓰세요("turn_off", "switch_off" 같은 그럴듯한 이름을 지어내지 말고 목록에 있는 정확한 문자열을
+  그대로 쓰세요, 예: on/off/toggle/brightness). 목록이 비어있거나 적절한 장치·action 이 없으면
+  automation_rule 대신 actionType="schedule_task" 를 쓰거나 actionable=false 로 두세요.
+- ruleJson 은 trigger 또는 schedule 중 정확히 하나만 채우세요(trigger 만 있으면 자동화, schedule
+  만 있으면 예약, 둘 다 null 이면 무효한 룰입니다 - 반드시 하나는 채워야 합니다). 시간 기반 자동화면
+  schedule 을 {"repeat":"daily"|"weekly"|"once","time":"HH:MM", ...} 형태로 채우고 trigger 는
+  null 로 두세요.
 - items 는 보통 1~3개로 제한하되, 아래 [필수] 요구사항이 있으면 그 최소 개수를 우선하세요.
 $actionable_requirement$retry_feedback

@@ -12,7 +12,7 @@ SURFACE_TABLES/SURFACE_RAG_COLLECTIONS 매핑은 insight-generation-api.md 에 �
 
 import json
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
 from langchain_core.messages import HumanMessage, ToolMessage
 from langgraph.graph import END, StateGraph
@@ -23,36 +23,59 @@ from app.schemas.insight import GeneratedInsightBatch
 from app.services.llm import invoke_structured
 from app.services.prompts import load_prompt
 from app.state.insight_state import InsightGenerationState
+from app.tools import devices_internal
+from app.tools.db_query import DbQuery, query_db
+from app.tools.errors import InternalApiError
 
 
 MAX_CONTEXT_ROUNDS = 2
 
 # 사용자가 바로 실행할 수 있는 액션이 없으면 화면이 텍스트만 나열하는 배너로 전락한다 —
-# 이 surface 들은 전체 항목이 최소 MIN_TOTAL_ITEMS개, 그중 actionable 항목이 최소
-# MIN_ACTIONABLE_ITEMS개는 있어야 한다. posture_report 는 요청에 따라 잠시 제외(다시
-# 필요해지면 이 set 에 넣기만 하면 된다 — _FALLBACK_ACTIONS 항목은 남겨둠).
+# 이 surface 들은 전체 항목이 최소 MIN_TOTAL_ITEMS개, 그중 actionable 항목으로
+# schedule_task 최소 1개·automation_rule 최소 1개가 각각 있어야 한다("actionable 아무거나
+# 2개"가 아니라 두 actionType 이 골고루 있어야 화면이 다양해진다). posture_report 는
+# 요청에 따라 잠시 제외(다시 필요해지면 이 set 에 넣기만 하면 된다 — _FALLBACK_ACTIONS
+# 항목은 남겨둠).
 REQUIRE_ACTIONABLE_SURFACES = {"sleep_report", "power", "weekly_plan"}
 MAX_GENERATE_ATTEMPTS = 3
-MIN_ACTIONABLE_ITEMS = 2
 MIN_TOTAL_ITEMS = 4
+
+# device-tool-api.md 클래스별 레퍼런스 표 기준 Actionable 이 없는 클래스(카메라·레이더) —
+# automation_rule 의 action 대상으로 고르면 안 된다.
+_NON_ACTIONABLE_DEVICE_CLASSES = {"srs_r4sn", "reolink_e1_pro", "droid_cam"}
+
+# surface 별로 automation_rule 폴백을 만들 때 우선적으로 고를 장치 클래스(있으면 이 순서로,
+# 없으면 Actionable 한 아무 장치나). 완전히 하드코딩된 deviceId 대신 "이 surface 라면 보통
+# 이런 종류의 장치를 자동화하고 싶을 것"이라는 클래스 힌트만 남겨서, 실제 등록된 장치
+# 목록에서 매 실행마다 동적으로 고른다.
+_PREFERRED_DEVICE_CLASSES: dict[str, list[str]] = {
+    "sleep_report": ["philips_wiz_e29_color", "philips_wiz_e29_white"],
+    "power": ["tuya_ep2h"],
+    "weekly_plan": ["philips_wiz_e29_color", "philips_wiz_e29_white", "tuya_ep2h"],
+}
 
 _ACTIONABLE_REQUIREMENT_TEXT = f"""
 [필수] 이 화면(surface)은 전체 인사이트를 최소 {MIN_TOTAL_ITEMS}개 포함해야 하고, 그중
-actionable=true 항목이 최소 {MIN_ACTIONABLE_ITEMS}개 이상이어야 합니다. actionable 항목마다
-조회된 데이터에서 실행 가능한 신호(반복되는 패턴, 임계치 근접, 습관화 여지 등)를 찾아
-actionType(schedule_task 또는 automation_rule)과 그에 맞는 scheduleTaskJson/ruleJson을
-실제로 적용 가능한 형태로 채우세요. 나머지 항목은 배너/팁/목표여도 되지만, actionable
+actionable=true 항목으로 actionType="schedule_task" 가 최소 1개, actionType="automation_rule"
+이 최소 1개는 있어야 합니다. actionable 항목마다 조회된 데이터에서 실행 가능한 신호(반복되는
+패턴, 임계치 근접, 습관화 여지 등)를 찾아 그에 맞는 scheduleTaskJson/ruleJson을 실제로 적용
+가능한 형태로 채우세요. automation_rule 의 ruleJson.action.deviceId 는 반드시 [등록된 장치
+목록]에 실제로 나온 device.id 값만 쓰세요 - 목록에 없으면 절대 지어내지 말고 대신
+actionType="schedule_task" 로 대체하세요. 나머지 항목은 배너/팁/목표여도 되지만, actionable
 항목들은 "검토 후 실행" 수준으로 구체적이어야 합니다."""
 
 _RETRY_FEEDBACK_TEXT = f"""
 
 [재시도] 이전 시도에서 만든 인사이트가 요구사항(전체 {MIN_TOTAL_ITEMS}개 이상, 그중
-actionable=true {MIN_ACTIONABLE_ITEMS}개 이상)을 충족하지 못했습니다. 이번엔 위 [필수]
-요구사항을 반드시 지켜서 다시 생성하세요."""
+actionable=true 항목으로 schedule_task 1개 이상·automation_rule 1개 이상)을 충족하지
+못했습니다. 이번엔 위 [필수] 요구사항을 반드시 지켜서 다시 생성하세요."""
 
-# 각 REQUIRE_ACTIONABLE_SURFACES 는 MIN_TOTAL_ITEMS(4)개의 actionable spec 을 갖고 있다 —
-# top-up 이 발동하면 이 리스트 전체를 그대로 붙여서 최악의 경우(LLM 이 아무것도 못 만든 경우)
-# 에도 actionable/전체 최소치를 한 번에 만족시킨다(부분만 골라 붙이는 계산은 하지 않는다).
+# 각 REQUIRE_ACTIONABLE_SURFACES 는 MIN_TOTAL_ITEMS(4)개 이상의 actionable spec 을 갖고
+# 있고, 그중 schedule_task/automation_rule 이 각각 최소 1개씩 있다 — top-up 이 발동하면 이
+# 리스트 전체를 그대로 붙여서 최악의 경우(LLM 이 아무것도 못 만든 경우)에도 두 actionType의
+# 최소치를 한 번에 만족시킨다. automation_rule spec 은 deviceId 를 갖고 있지 않다 - 실행
+# 시점에 _pick_device_id() 로 실제 등록된 장치에서 동적으로 고른다(적합한 장치가 하나도
+# 없으면 그 spec 은 건너뛴다 - 존재하지 않는 id 를 내보내느니 항목 수를 줄이는 쪽을 택함).
 # posture_report 는 REQUIRE_ACTIONABLE_SURFACES 에서 잠시 빠져 있지만 다시 켤 때를 대비해
 # 마찬가지로 4개를 채워둔다.
 _FALLBACK_ACTIONS: dict[str, list[dict[str, Any]]] = {
@@ -71,7 +94,6 @@ _FALLBACK_ACTIONS: dict[str, list[dict[str, Any]]] = {
             "title": "취침 조명 자동화 설정",
             "text": "매일 밤 11시에 조명을 자동으로 낮춰 숙면을 도와드릴게요.",
             "actionType": "automation_rule",
-            "device_id": 11,
             "rule_name": "취침 조명 자동화",
             "schedule_time": "23:00",
         },
@@ -143,7 +165,6 @@ _FALLBACK_ACTIONS: dict[str, list[dict[str, Any]]] = {
             "title": "심야 대기전력 차단 자동화",
             "text": "사용하지 않는 시간대엔 플러그를 자동으로 꺼서 대기전력을 줄일 수 있어요.",
             "actionType": "automation_rule",
-            "device_id": 6,
             "rule_name": "심야 대기전력 차단",
             "schedule_time": "01:00",
         },
@@ -171,7 +192,6 @@ _FALLBACK_ACTIONS: dict[str, list[dict[str, Any]]] = {
             "title": "주방 대기전력 차단 자동화",
             "text": "야간엔 주방 콘센트도 자동으로 꺼서 대기전력을 줄일 수 있어요.",
             "actionType": "automation_rule",
-            "device_id": 9,
             "rule_name": "심야 주방 대기전력 차단",
             "schedule_time": "00:30",
         },
@@ -217,15 +237,22 @@ _FALLBACK_ACTIONS: dict[str, list[dict[str, Any]]] = {
             "end_minute": 1280,
             "day_of_week": "fri",
         },
+        {
+            "title": "주말 저녁 조명 자동화",
+            "text": "주말 저녁 시간에 맞춰 조명을 자동으로 조절해 한 주를 편안하게 마무리해보세요.",
+            "actionType": "automation_rule",
+            "rule_name": "주말 저녁 조명 자동화",
+            "schedule_time": "20:00",
+        },
     ],
 }
 
 SURFACE_TABLES: dict[str, set[str]] = {
-    "dashboard_banner": {"sleep_report", "power_report", "schedule_task", "alarm"},
-    "weekly_plan": {"schedule_task", "sleep_report", "posture_report", "weekly_plan_report"},
-    "sleep_report": {"sleep_session", "sleep_stat", "sleep_report"},
-    "posture_report": {"gesture_log", "posture_stat", "posture_report"},
-    "power": {"power_energy", "power_report"},
+    "dashboard_banner": {"sleep_report", "power_report", "schedule_task", "alarm", "device"},
+    "weekly_plan": {"schedule_task", "sleep_report", "posture_report", "weekly_plan_report", "device"},
+    "sleep_report": {"sleep_session", "sleep_stat", "sleep_report", "device"},
+    "posture_report": {"gesture_log", "posture_stat", "posture_report", "device"},
+    "power": {"power_energy", "power_report", "device"},
 }
 
 SURFACE_RAG_COLLECTIONS: dict[str, set[str]] = {
@@ -266,11 +293,117 @@ def _day_of_week(date: str) -> str:
     return datetime.strptime(date, "%Y-%m-%d").strftime("%a").lower()
 
 
-def _build_actionable_item(state: InsightGenerationState, spec: dict[str, Any]) -> dict[str, Any]:
-    """_FALLBACK_ACTIONS[surface]["actionable"] 의 spec 하나를 GeneratedInsight 모양의
-    dict 로 조립한다. 2번의 generate 시도에도 요구 개수를 못 채운 REQUIRE_ACTIONABLE_SURFACES
-    용 최후 방어선 — LLM 이 뭘 생성하든 이 규칙 기반 항목들이 최소 개수 계약을 코드 레벨에서
-    보장한다."""
+def _actionable_devices(devices: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [d for d in devices if d.get("class") not in _NON_ACTIONABLE_DEVICE_CLASSES]
+
+
+def _pick_device_id(devices: list[dict[str, Any]], surface: str) -> Optional[int]:
+    """automation_rule 폴백용으로 surface 에 맞는 실제 장치 id 하나를 고른다.
+    선호 클래스(_PREFERRED_DEVICE_CLASSES)를 우선 찾고, 없으면 Actionable 한 아무
+    장치나 첫 번째를 쓴다. 그마저 없으면 None(호출자가 해당 spec 을 건너뛴다)."""
+    candidates = _actionable_devices(devices)
+    for class_name in _PREFERRED_DEVICE_CLASSES.get(surface, []):
+        for device in candidates:
+            if device.get("class") == class_name:
+                return device.get("id")
+    return candidates[0]["id"] if candidates else None
+
+
+def _devices_with_actions(
+    devices: list[dict[str, Any]], action_names_by_class: dict[str, set[str]]
+) -> list[dict[str, Any]]:
+    """프롬프트에 보여줄 장치 목록에 클래스별 실제 action 이름을 인라인으로 붙인다 -
+    LLM 이 "이 장치로 뭘 할 수 있는지" 를 바로 보고 automation_rule 을 짓게 하기 위함
+    (그전에는 device.class 문자열만 보고 action 이름을 추측했다: 실측으로 tuya_ep2h 에
+    존재하지 않는 "turn_off" 를 지어낸 적이 있다 - 진짜 이름은 on/off/toggle)."""
+    annotated = []
+    for device in _actionable_devices(devices):
+        item = dict(device)
+        item["actions"] = sorted(action_names_by_class.get(device.get("class"), set()))
+        annotated.append(item)
+    return annotated
+
+
+def _validate_automation_rules(
+    items: list[dict[str, Any]],
+    devices: list[dict[str, Any]],
+    action_names_by_class: dict[str, set[str]],
+) -> list[dict[str, Any]]:
+    """LLM 이 만든 automation_rule 항목을 사후 검증한다. gather 에서 device 목록을 결정적으로
+    조회해도 LLM 이 그 목록을 무시하고 지어낼 수 있으므로(실측: 3번 중 1번) 코드 레벨
+    최후 방어선으로 여기서 최종적으로 걸러낸다. 세 가지를 확인한다:
+    1) ruleJson.action.deviceId 가 실제 조작 가능한 장치인지
+    2) trigger/schedule 중 최소 하나는 있는지 - device-tool-api.md 설계원칙 2: "trigger 만
+       있으면 자동화, schedule 만 있으면 예약, 둘 다 없으면 무효". 실측으로 둘 다 null 인
+       룰이 실제로 생성된 적이 있다(백엔드에 그대로 보내면 거부될 무효한 룰).
+    3) ruleJson.action.name 이 그 장치 class 에 실제로 존재하는 action 인지 - 실측으로
+       tuya_ep2h 에 없는 "turn_off" 를 지어낸 적이 있다(진짜: on/off/toggle). 이건 룰
+       생성 API(POST /internal/v1/rules) 자체는 막지 않고 그대로 201 을 반환하지만,
+       실행 시점에 Actionable::invoke() 가 그 이름을 못 찾아 조용히 실패한다.
+    셋 중 하나라도 실패하면 actionable=false 로 강등한다 - 화면에는 "실행 가능"이라고 보여
+    주면서 실제로는 적용이 안 되는 항목을 내보내느니, 항목 수를 줄이는 쪽을 택한다."""
+    valid_ids = {device["id"] for device in _actionable_devices(devices)}
+    class_by_id = {device["id"]: device.get("class") for device in devices}
+    # action_names_by_class 조회 자체가 실패해서 완전히 비어 있으면(예: device-classes 호출
+    # 예외) "모른다"는 뜻이지 "다 틀렸다"는 뜻이 아니다 - 이 경우엔 이름 검사를 건너뛴다.
+    # 그러지 않으면 조회 실패 한 번으로 모든 automation_rule 이 통째로 걸러진다.
+    enforce_action_names = bool(action_names_by_class)
+    for item in items:
+        if item.get("actionType") != "automation_rule" or not item.get("ruleJson"):
+            continue
+        rule = item["ruleJson"]
+        action = rule.get("action") or {}
+        device_id = action.get("deviceId")
+        action_name = action.get("name")
+        has_trigger = bool(rule.get("trigger"))
+        has_schedule = bool(rule.get("schedule"))
+        valid_action_name = (
+            not enforce_action_names
+            or action_name in action_names_by_class.get(class_by_id.get(device_id), set())
+        )
+        if device_id not in valid_ids or not (has_trigger or has_schedule) or not valid_action_name:
+            item["actionable"] = False
+            item["actionType"] = None
+            item["ruleJson"] = None
+    return items
+
+
+def _rulejson_device_ids_to_wire(
+    items: list[dict[str, Any]], devices: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """automation_rule 의 ruleJson.action.deviceId 를 (내부 규약인 int) 에서 실제 wire
+    포맷인 16자리 hex 외부 id 로 바꾼다 - /internal/v1/rules 는 문자열이 아니면 즉시
+    400 INVALID_REQUEST 로 거부한다(rule_store.cpp).
+
+    app/tools/device_id.py 의 device_id_to_hex()(zero-pad 공식, 예: 4 -> "0000000000000004")
+    는 쓰지 않는다 - 실측 결과 real backend 의 device.externalId 는 정수 id로부터 계산되는
+    값이 아니라 device_list.json 에 박힌 임의의 64bit 값이다(예: id=4 -> "6b0f3e8a92c47d15").
+    zero-pad 공식으로 만든 값은 rules 생성 API 는 그냥 문자열이라 받아주지만(201), 실행
+    시점에 trigger_manager.cpp/action_queue.cpp 가 dev::parseDeviceID() 로 그 문자열을 정수로
+    파싱해 deviceManager 에서 직접 찾기 때문에(DB 폴백 조회 없음) 못 찾아서 자동화가 조용히
+    실행되지 않는다(직접 재현 확인). 그래서 db/query 가 이미 돌려준 실제 device.externalId 를
+    그대로 쓴다. 매핑에 없으면(예: mock 모드처럼 externalId 필드 자체가 없는 경우) 원래 int
+    를 그대로 둔다 - 뭘 넣어도 확실하지 않을 땐 지어내지 않는다."""
+    external_id_by_id = {device["id"]: device.get("externalId") for device in devices}
+    for item in items:
+        rule = item.get("ruleJson")
+        if not rule:
+            continue
+        device_id = (rule.get("action") or {}).get("deviceId")
+        external_id = external_id_by_id.get(device_id)
+        if isinstance(device_id, int) and external_id:
+            rule["action"]["deviceId"] = external_id
+    return items
+
+
+def _build_actionable_item(
+    state: InsightGenerationState, spec: dict[str, Any], device_id: Optional[int] = None
+) -> dict[str, Any]:
+    """_FALLBACK_ACTIONS[surface] 의 spec 하나를 GeneratedInsight 모양의 dict 로 조립한다.
+    MAX_GENERATE_ATTEMPTS 번의 generate 시도에도 요구 개수/actionType 구성을 못 채운
+    REQUIRE_ACTIONABLE_SURFACES 용 최후 방어선 — LLM 이 뭘 생성하든 이 규칙 기반 항목들이
+    최소 계약을 코드 레벨에서 보장한다. automation_rule spec 은 device_id 인자로 실제
+    장치 id 를 받아야 한다(없으면 호출하지 말 것 - _top_up_items 가 그 필터링을 한다)."""
     surface = state["surface"]
     day = spec.get("day_of_week") or _day_of_week(state["date"])
     base = {
@@ -303,7 +436,7 @@ def _build_actionable_item(state: InsightGenerationState, spec: dict[str, Any]) 
             "enabled": True,
             "trigger": None,
             "schedule": {"repeat": "daily", "time": spec["schedule_time"]},
-            "action": {"deviceId": spec["device_id"], "name": "off", "params": {}},
+            "action": {"deviceId": device_id, "name": "off", "params": {}},
             "execMode": "repeat",
             "repeatIntervalMs": None,
             "cooldownMs": 0,
@@ -311,13 +444,67 @@ def _build_actionable_item(state: InsightGenerationState, spec: dict[str, Any]) 
     return base
 
 
-def _top_up_items(state: InsightGenerationState, items: list[dict[str, Any]]) -> None:
-    """items 에 surface 의 fallback actionable 리스트(정확히 MIN_TOTAL_ITEMS개) 전체를
-    그대로 붙인다. 부분만 골라 붙이면 "몇 개가 모자란지" 계산이 필요해 실수하기 쉬운데,
-    리스트 자체가 이미 두 최소치(MIN_ACTIONABLE_ITEMS/MIN_TOTAL_ITEMS)를 넘도록 채워져
-    있으므로 무조건 전체를 더하는 쪽이 더 단순하고 안전하다."""
-    for spec in _FALLBACK_ACTIONS[state["surface"]]:
-        items.append(_build_actionable_item(state, spec))
+def _top_up_items(
+    state: InsightGenerationState, items: list[dict[str, Any]], devices: list[dict[str, Any]]
+) -> None:
+    """items 에 surface 의 fallback actionable 리스트를 그대로 붙인다(스펙 자체가 이미
+    schedule_task/automation_rule 최소 1개씩 + MIN_TOTAL_ITEMS 를 넘도록 채워져 있다).
+    automation_rule spec 은 실행 시점에 실제 장치에서 고른 id 가 있을 때만 추가한다 -
+    적합한 장치가 하나도 없으면 그 항목은 건너뛴다(존재하지 않는 id 를 내보내지 않기
+    위해 개수 계약보다 정확성을 우선한다)."""
+    surface = state["surface"]
+    device_id = _pick_device_id(devices, surface)
+    for spec in _FALLBACK_ACTIONS[surface]:
+        if spec["actionType"] == "automation_rule" and device_id is None:
+            continue
+        items.append(_build_actionable_item(state, spec, device_id))
+
+
+async def _fetch_devices(user_id: int) -> list[dict[str, Any]]:
+    """automation_rule 검증·폴백에 항상 필요해서, LLM 의 tool 선택에 맡기지 않고 gather
+    단계에서 결정적으로 조회한다(LLM 에게 맡겼을 때는 3번 중 1번만 device 를 조회했다).
+
+    1) device_user_map 이 채워져 있으면 device?filter=userId 단일 쿼리로 끝난다 - 왕복이
+       1회뿐이고, room 단위가 아니라 장치 단위 권한이라 더 정확하다(같은 방을 공유해도
+       특정 장치만 비공개로 둘 수 있음).
+    2) 이 real backend 는 현재 device_user_map 이 비어 있어(room_user_map 만 시딩됨) 1)이
+       매번 0건이라, room_user_map -> device(roomId) 경유(devices_internal.py 의
+       list_devices/resolve_device_id 와 동일한 방식)로 대체한다."""
+    [direct] = await query_db([DbQuery(table="device", filter={"userId": user_id, "archived": 0})])
+    if direct.error is None and direct.items:
+        return direct.items
+
+    [room_result] = await query_db([DbQuery(table="room_user_map", filter={"userId": user_id})])
+    if room_result.error is not None:
+        return []
+    room_ids = [row["roomId"] for row in room_result.items]
+    if not room_ids:
+        return []
+
+    devices: list[dict[str, Any]] = []
+    seen_ids: set[Any] = set()
+    for room_id in room_ids:
+        [result] = await query_db([DbQuery(table="device", filter={"roomId": room_id, "archived": 0})])
+        if result.error is not None:
+            continue
+        for item in result.items:
+            if item["id"] not in seen_ids:
+                seen_ids.add(item["id"])
+                devices.append(item)
+    return devices
+
+
+async def _fetch_action_names_by_class() -> dict[str, set[str]]:
+    """automation_rule 의 action.name 검증·프롬프트 grounding 에 쓸, 클래스별 실제 action
+    이름 집합을 device 목록과 마찬가지로 LLM 의 tool 선택에 맡기지 않고 결정적으로
+    조회한다. GET /internal/v1/device-classes 는 devicesReady() 게이트가 없는 정적
+    레지스트리라 --no-devices 에서도 항상 응답한다(devices_internal.get_device_classes()
+    가 mock/real 을 알아서 분기)."""
+    try:
+        classes = await devices_internal.get_device_classes()
+    except InternalApiError:
+        return {}
+    return {c.class_: {action.name for action in c.actions} for c in classes}
 
 
 async def gather(state: InsightGenerationState) -> dict[str, Any]:
@@ -333,7 +520,9 @@ async def gather(state: InsightGenerationState) -> dict[str, Any]:
         system_prompt_fn=lambda _state: _CONTEXT_SYSTEM_PROMPT,
     )
     result = await loop.ainvoke({"messages": [_seed_message(state)], "rounds": 0})
-    return {"messages": result["messages"]}
+    devices = await _fetch_devices(state["user_id"])
+    action_names_by_class = await _fetch_action_names_by_class()
+    return {"messages": result["messages"], "devices": devices, "action_names_by_class": action_names_by_class}
 
 
 def _needs_actionable(state: InsightGenerationState) -> bool:
@@ -343,6 +532,8 @@ def _needs_actionable(state: InsightGenerationState) -> bool:
 async def generate(state: InsightGenerationState) -> dict[str, Any]:
     attempt = state.get("generate_attempts", 0)  # 이 호출이 몇 번째 시도인지(0-based)
     extra_context = _extract_tool_results(state.get("messages", []))
+    devices = state.get("devices", [])
+    action_names_by_class = state.get("action_names_by_class", {})
     prompt = load_prompt(
         "insight",
         "generate",
@@ -351,23 +542,35 @@ async def generate(state: InsightGenerationState) -> dict[str, Any]:
         date=state["date"],
         context=json.dumps(state.get("context") or {}, ensure_ascii=False),
         extra_context=json.dumps(extra_context, ensure_ascii=False),
+        devices=json.dumps(_devices_with_actions(devices, action_names_by_class), ensure_ascii=False),
         retry_feedback=_RETRY_FEEDBACK_TEXT if attempt > 0 else "",
         actionable_requirement=_ACTIONABLE_REQUIREMENT_TEXT if _needs_actionable(state) else "",
     )
     batch = await invoke_structured(GeneratedInsightBatch, prompt, fallback=GeneratedInsightBatch(items=[]))
     items = [item.model_dump() for item in batch.items]
+    items = _validate_automation_rules(items, devices, action_names_by_class)
     attempts_done = attempt + 1
 
     if _needs_actionable(state) and not _meets_requirements(items) and attempts_done >= MAX_GENERATE_ATTEMPTS:
-        # 재시도 예산 소진 — 규칙 기반 fallback 으로 "최소 개수" 계약을 강제한다.
-        _top_up_items(state, items)
+        # 재시도 예산 소진 — 규칙 기반 fallback 으로 "schedule_task/automation_rule 각 1개
+        # 이상" 계약을 강제한다.
+        _top_up_items(state, items, devices)
+        # top-up 이 만든 항목도 동일 기준으로 재검증한다(현재 폴백은 항상 "off" 를 쓰는데,
+        # 이는 우연이 아니라 _PREFERRED_DEVICE_CLASSES 의 클래스들이 전부 "off" 를 갖고
+        # 있어서다 - 앞으로 선호 클래스가 바뀌어도 이 가드가 잡아준다).
+        items = _validate_automation_rules(items, devices, action_names_by_class)
+
+    # 검증·top-up 은 내부 규약(int)으로 끝내고, 응답으로 내보내기 직전 마지막 단계에서만
+    # wire 포맷(hex)으로 바꾼다 - _validate_automation_rules 의 valid_ids 비교가 int 매칭에
+    # 의존하므로 순서를 바꾸면 안 된다.
+    items = _rulejson_device_ids_to_wire(items, devices)
 
     return {"items": items, "generate_attempts": attempts_done}
 
 
 def _meets_requirements(items: list[dict[str, Any]]) -> bool:
-    actionable_count = sum(1 for item in items if item["actionable"])
-    return actionable_count >= MIN_ACTIONABLE_ITEMS and len(items) >= MIN_TOTAL_ITEMS
+    actionable_types = {item["actionType"] for item in items if item["actionable"]}
+    return "schedule_task" in actionable_types and "automation_rule" in actionable_types and len(items) >= MIN_TOTAL_ITEMS
 
 
 def _should_retry_generate(state: InsightGenerationState) -> str:

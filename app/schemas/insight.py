@@ -15,7 +15,7 @@ from app.tools.schedule_tasks_internal import CreateScheduleTaskRequest
 
 
 InsightSurface = Literal["dashboard_banner", "weekly_plan", "sleep_report", "posture_report", "power"]
-InsightKind = Literal["banner", "action", "goal", "tip"]
+InsightKind = Literal["action", "goal", "tip"]
 InsightActionType = Literal["schedule_task", "automation_rule", "reservation"]
 
 
