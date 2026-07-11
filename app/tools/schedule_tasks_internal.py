@@ -19,6 +19,9 @@ from app.tools.errors import InternalApiError
 ScheduleKind = Literal["weekly", "once"]
 DayOfWeek = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 CreatedBy = Literal["user", "agent"]
+# wave-home-front/src/App.js의 CATEGORY_TO_KOREAN 이 렌더링하는 키와 동일하게 유지한다.
+# life는 posture/sleep/diet/mental 어디에도 안 맞는 병원 예약·행정 용무 등의 catch-all.
+ScheduleCategory = Literal["posture", "sleep", "diet", "mental", "life"]
 
 
 class ScheduleTask(BaseModel):
@@ -40,7 +43,7 @@ class ScheduleTask(BaseModel):
 class CreateScheduleTaskRequest(BaseModel):
     userId: int
     title: str
-    category: str
+    category: ScheduleCategory
     scheduleKind: ScheduleKind = "weekly"
     dayOfWeek: DayOfWeek
     eventDate: Optional[str] = None

@@ -10,6 +10,7 @@ cross-user data request.
 """
 
 import json
+from datetime import date
 from typing import Any, Literal, Optional
 
 from langchain_core.tools import BaseTool, tool
@@ -36,7 +37,7 @@ from app.tools.rules_internal import (
     RuleAction,
     RuleSchedule,
 )
-from app.tools.schedule_tasks_internal import CreateScheduleTaskRequest, DayOfWeek
+from app.tools.schedule_tasks_internal import CreateScheduleTaskRequest, DayOfWeek, ScheduleCategory
 
 
 class _QueryDbArgs(BaseModel):
@@ -495,12 +496,51 @@ def make_get_schedule_tasks_tool(user_id: int) -> BaseTool:
     return _get_schedule_tasks
 
 
+_WEEKDAY_CODES: tuple[DayOfWeek, ...] = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+def _validate_minute_range(start_minute: Optional[int], end_minute: Optional[int]) -> None:
+    """자정 기준 분(0~1440) 범위·시작<종료 순서·둘 다 함께 오는지를 확인한다. 백엔드
+    (schedule_tasks_internal_store.cpp)는 이 중 아무것도 검증하지 않으므로 여기서 걸러두지
+    않으면 잘못된 값이 그대로 저장된다. wave-home-front의 자체 mock 검증(validateTimeRange)이
+    쓰는 규칙과 동일하게 맞춘다: 시간은 항상 짝으로 오거나 아예 없어야 한다."""
+    if (start_minute is None) != (end_minute is None):
+        given, missing = ("start_minute", "end_minute") if start_minute is not None else ("end_minute", "start_minute")
+        raise ValueError(f"{given}를 지정했으면 {missing}도 함께 지정해야 합니다.")
+    for label, value in (("start_minute", start_minute), ("end_minute", end_minute)):
+        if value is not None and not (0 <= value <= 1440):
+            raise ValueError(f"{label}는 0~1440 사이여야 합니다: {value}")
+    if start_minute is not None and end_minute is not None and start_minute >= end_minute:
+        raise ValueError(f"start_minute({start_minute})은 end_minute({end_minute})보다 작아야 합니다.")
+
+
+def _derive_day_of_week(event_date: str) -> DayOfWeek:
+    """once 일정의 day_of_week 는 event_date 에서 유일하게 정해지는 파생값이라
+    모델에게 별도로 요구하지 않는다 — 모델이 날짜·요일을 따로 계산하다 서로 어긋나거나
+    깜빡 빠뜨리면 백엔드 왕복 후에야 실패가 드러나 실패→재시도 응답이 한 번 더 늘어난다."""
+    try:
+        parsed = date.fromisoformat(event_date)
+    except ValueError as exc:
+        raise ValueError(f"event_date는 'YYYY-MM-DD' 형식이어야 합니다: {event_date!r}") from exc
+    return _WEEKDAY_CODES[parsed.weekday()]
+
+
 class _CreateScheduleTaskArgs(BaseModel):
     title: str = Field(..., description="일정 제목")
-    category: str = Field(..., description="예: posture, sleep, diet, mental, exercise")
+    category: ScheduleCategory = Field(
+        ...,
+        description="'posture'|'sleep'|'diet'|'mental'|'life' 중 하나. 프런트가 이 5개만 라벨로 표시한다. "
+        "병원 예약·행정 용무처럼 나머지 4개에 안 맞으면 'life'를 쓰세요.",
+    )
     schedule_kind: Literal["weekly", "once"] = Field("weekly", description="weekly=매주 반복, once=1회성")
-    day_of_week: DayOfWeek = Field(..., description="'mon'..'sun'")
-    event_date: Optional[str] = Field(None, description="scheduleKind='once' 일 때 'YYYY-MM-DD'")
+    day_of_week: Optional[DayOfWeek] = Field(
+        None,
+        description="'mon'..'sun'. schedule_kind='weekly'일 때만 채우세요. "
+        "'once'일 때는 event_date로부터 서버가 계산하므로 생략하세요.",
+    )
+    event_date: Optional[str] = Field(
+        None, description="schedule_kind='once'일 때 필수, 'YYYY-MM-DD'. weekly에는 넣지 마세요."
+    )
     start_minute: Optional[int] = Field(None, description="자정 기준 시작 분(0~1440)")
     end_minute: Optional[int] = Field(None, description="자정 기준 종료 분(0~1440)")
 
@@ -509,21 +549,35 @@ def make_create_schedule_task_tool(user_id: int) -> BaseTool:
     @tool("create_schedule_task", args_schema=_CreateScheduleTaskArgs)
     async def _create_schedule_task(
         title: str,
-        category: str,
-        day_of_week: DayOfWeek,
+        category: ScheduleCategory,
         schedule_kind: Literal["weekly", "once"] = "weekly",
+        day_of_week: Optional[DayOfWeek] = None,
         event_date: Optional[str] = None,
         start_minute: Optional[int] = None,
         end_minute: Optional[int] = None,
     ) -> str:
-        """새로운 반복 일정 또는 1회성 일정을 추가합니다(createdBy=agent 로 저장됨)."""
+        """새로운 반복 일정 또는 1회성 일정을 추가합니다(createdBy=agent 로 저장됨).
+        once는 day_of_week를 event_date로부터 자동 계산하므로 보내지 않아도 됩니다."""
+        if schedule_kind == "once":
+            if not event_date:
+                raise ValueError("schedule_kind='once'에는 event_date('YYYY-MM-DD')가 필요합니다.")
+            resolved_day_of_week = _derive_day_of_week(event_date)
+        else:
+            if event_date:
+                raise ValueError("schedule_kind='weekly'에는 event_date를 넣을 수 없습니다.")
+            if day_of_week is None:
+                raise ValueError("schedule_kind='weekly'에는 day_of_week가 필요합니다.")
+            resolved_day_of_week = day_of_week
+
+        _validate_minute_range(start_minute, end_minute)
+
         task = await schedule_tasks_internal.create_schedule_task(
             CreateScheduleTaskRequest(
                 userId=user_id,
                 title=title,
                 category=category,
                 scheduleKind=schedule_kind,
-                dayOfWeek=day_of_week,
+                dayOfWeek=resolved_day_of_week,
                 eventDate=event_date,
                 startMinute=start_minute,
                 endMinute=end_minute,
@@ -556,6 +610,7 @@ def make_update_schedule_task_tool(user_id: int) -> BaseTool:
         done: Optional[bool] = None,
     ) -> str:
         """기존 일정의 제목/요일/날짜/시간/완료 여부를 변경합니다."""
+        _validate_minute_range(start_minute, end_minute)
         fields: dict[str, Any] = {}
         if title is not None:
             fields["title"] = title
