@@ -93,13 +93,17 @@ def _sleep_report_mock(user_id: int) -> list[dict[str, Any]]:
 
 # 별개 기능(추후 작업)에서 쓸 user_action_log 용 임시 mock — 다른 테이블처럼 mock.db 실 시딩
 # 데이터가 없어 그럴싸한 가짜 행 몇 개만 둔다. schedule_task_mock 과 동일하게 filter-aware.
+# category 는 goal-coaching 기능(app/graph/goal_coaching_graph.py)이 추가한 NEW 컬럼 —
+# ref_type='schedule_task' 인 행에만 그 schedule_task.category 값이 채워지고,
+# ref_type='insight' 인 행은 카테고리 개념이 없어 항상 None 이다(MOCK_SCHEDULE_TASKS의
+# 해당 id 의 category 와 일치시켰다: id=1 -> "posture", id=20 -> "diet").
 MOCK_USER_ACTION_LOGS: list[dict[str, Any]] = [
     {"id": 1, "userId": 1, "actionType": "insight_applied", "refType": "insight", "refId": 2001,
-     "occurredAt": "2026-07-09 08:15:00", "metadataJson": None},
+     "occurredAt": "2026-07-09 08:15:00", "category": None, "metadataJson": None},
     {"id": 2, "userId": 1, "actionType": "schedule_task_completed", "refType": "schedule_task", "refId": 1,
-     "occurredAt": "2026-07-10 07:05:00", "metadataJson": None},
+     "occurredAt": "2026-07-10 07:05:00", "category": "posture", "metadataJson": None},
     {"id": 3, "userId": 2, "actionType": "schedule_task_created", "refType": "schedule_task", "refId": 20,
-     "occurredAt": "2026-07-10 21:40:00", "metadataJson": None},
+     "occurredAt": "2026-07-10 21:40:00", "category": "diet", "metadataJson": None},
 ]
 
 
@@ -113,6 +117,8 @@ def _user_action_log_mock(_user_id: int | None, filter_: dict[str, Any]) -> list
         items = [a for a in items if a["refType"] == filter_["refType"]]
     if "refId" in filter_:
         items = [a for a in items if a["refId"] == filter_["refId"]]
+    if "category" in filter_:
+        items = [a for a in items if a.get("category") == filter_["category"]]
     if "id" in filter_:
         items = [a for a in items if a["id"] == filter_["id"]]
     date_from = filter_.get("from")
@@ -419,6 +425,30 @@ def _room_user_map_mock(_user_id: int | None, filter_: dict[str, Any]) -> list[d
     return items
 
 
+# goal-coaching 기능(app/graph/goal_coaching_graph.py)용 임시 mock — user_action_log 와
+# 마찬가지로 mock.db 실 시딩 데이터가 없어 그럴싸한 가짜 행 몇 개만 둔다. MOCK_SCHEDULE_TASKS의
+# posture/mental 루틴과 이어지도록 골랐다(취침 전 독서 -> "취침 11시 전에 자기").
+MOCK_GOALS: list[dict[str, Any]] = [
+    {"id": 1, "userId": 1, "title": "취침 11시 전에 자기", "category": "sleep", "status": "active",
+     "createdAt": "2026-06-10 21:00:00", "updatedAt": "2026-06-10 21:00:00"},
+    {"id": 2, "userId": 1, "title": "아침 스트레칭 매일 하기", "category": "posture", "status": "active",
+     "createdAt": "2026-06-15 08:00:00", "updatedAt": "2026-06-15 08:00:00"},
+]
+
+
+def _goal_mock(_user_id: int | None, filter_: dict[str, Any]) -> list[dict[str, Any]]:
+    items = MOCK_GOALS
+    if "userId" in filter_:
+        items = [g for g in items if g["userId"] == filter_["userId"]]
+    if "status" in filter_:
+        items = [g for g in items if g["status"] == filter_["status"]]
+    if "category" in filter_:
+        items = [g for g in items if g["category"] == filter_["category"]]
+    if "id" in filter_:
+        items = [g for g in items if g["id"] == filter_["id"]]
+    return items
+
+
 TABLE_SPECS: dict[str, _TableSpec] = {
     "user": _TableSpec(allowed={"id"}),
     "room": _TableSpec(allowed={"id", "userId"}),
@@ -476,7 +506,11 @@ TABLE_SPECS: dict[str, _TableSpec] = {
     ),
     "user_action_log": _TableSpec(
         required_any={"userId"},
-        allowed={"id", "userId", "actionType", "refType", "refId", "from", "to"},
+        allowed={"id", "userId", "actionType", "refType", "refId", "category", "from", "to"},
+    ),
+    "goal": _TableSpec(
+        required_any={"userId"},
+        allowed={"id", "userId", "status", "category"},
     ),
 }
 
@@ -497,6 +531,7 @@ _FILTER_AWARE_MOCK_GENERATORS = {
     "schedule_task": _schedule_task_mock,
     "weekly_plan_report": _weekly_plan_report_mock,
     "user_action_log": _user_action_log_mock,
+    "goal": _goal_mock,
 }
 
 
