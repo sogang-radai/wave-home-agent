@@ -1,13 +1,20 @@
 """docs/api.md §1.4 Sleep Analysis API business logic: validates requests, enqueues a
 background job (app/services/jobs.py), generates summaryText/reportText via LLM with a
 rule-based fallback (mirrors app/graph/report_turn_graph.py's _rule_based_content), and
-optionally an embedding via Ollama (app/services/embeddings.py)."""
+optionally an embedding via Ollama (app/services/embeddings.py).
+
+PLAN_KIND is the "오늘 밤 추천 수면 시간" job: unlike SUMMARY/REPORT it delegates the whole
+gather+generate step to app/graph/sleep_plan_graph.py (a gather->generate LangGraph like
+app/services/weekly_plan.py's _graph) instead of calling invoke_text directly, since it also
+needs to independently query recent sleep/schedule data before generating. Its reportText is a
+json.dumps'd SleepPlanContent — see app/schemas/sleep_plan.py's docstring for why."""
 
 import json
 import logging
 from typing import Any
 
 from app.errors import AgentApiError
+from app.graph.sleep_plan_graph import build as build_sleep_plan_graph
 from app.schemas.jobs import JobRef
 from app.schemas.sleep_analysis import (
     SleepReportRequest,
@@ -15,6 +22,7 @@ from app.schemas.sleep_analysis import (
     SleepSummaryRequest,
     SleepSummaryResponse,
 )
+from app.schemas.sleep_plan import SleepPlanRequest, SleepPlanResult
 from app.services.embeddings import generate_embedding
 from app.services.job_common import apply_embedding, create_job_or_409, spawn
 from app.services.jobs import job_store
@@ -26,6 +34,9 @@ logger = logging.getLogger(__name__)
 
 SUMMARY_KIND = "sleep_summary"
 REPORT_KIND = "sleep_report"
+PLAN_KIND = "sleep_plan"
+
+_sleep_plan_graph = build_sleep_plan_graph()
 
 
 def _rule_based_summary(body: SleepSummaryRequest) -> str:
@@ -124,4 +135,27 @@ async def _run_report(job_id: str, body: SleepReportRequest) -> None:
         model=model_used,
         embeddingModel=embedding_model,
     )
+    job_store.complete(job_id, response.model_dump())
+
+
+def create_plan_job(body: SleepPlanRequest) -> JobRef:
+    dedupe_key = f"{PLAN_KIND}:{body.userId}:{body.planDate}"
+    job = create_job_or_409(PLAN_KIND, dedupe_key=dedupe_key)
+    spawn(_run_plan(job.job_id, body), job_id=job.job_id)
+    return JobRef(jobId=job.job_id)
+
+
+async def _run_plan(job_id: str, body: SleepPlanRequest) -> None:
+    job_store.mark_running(job_id)
+    result = await _sleep_plan_graph.ainvoke({"user_id": body.userId, "plan_date": body.planDate, "rounds": 0})
+    content = result["content"]
+    report_text = json.dumps(content.model_dump() if hasattr(content, "model_dump") else content, ensure_ascii=False)
+
+    embedding, _embedding_model, failed = await apply_embedding(
+        job_id, report_text, None, body.embed, generate_embedding=generate_embedding
+    )
+    if failed:
+        return
+
+    response = SleepPlanResult(planDate=body.planDate, reportText=report_text, embedding=embedding)
     job_store.complete(job_id, response.model_dump())
