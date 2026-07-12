@@ -711,11 +711,14 @@ async def resolve_device_id(room_id: int, name: str, *, user_id: Optional[int] =
     """roomId 범위에서 장치 이름 부분일치(대소문자 무시)로 deviceId 해석.
 
     db_query.py 의 device 테이블 조회로 구현한다(device-tool-api.md §설계원칙 4).
+    room_id 가 0 이하거나 유효하지 않으면 사용자 범위 전체에서 검색한다.
     0건 -> NOT_FOUND, 2건 이상 -> AMBIGUOUS_DEVICE.
     """
     from app.tools.db_query import DbQuery, query_db
 
-    filter_: dict[str, Any] = {"roomId": room_id, "archived": 0}
+    filter_: dict[str, Any] = {"archived": 0}
+    if room_id and room_id > 0:
+        filter_["roomId"] = room_id
     if user_id is not None:
         filter_["userId"] = user_id
     [result] = await query_db([DbQuery(table="device", filter=filter_)])
@@ -724,9 +727,10 @@ async def resolve_device_id(room_id: int, name: str, *, user_id: Optional[int] =
 
     needle = name.strip().lower()
     matches = [item for item in result.items if needle in str(item.get("name", "")).lower()]
+    scope = f"roomId={room_id}" if room_id and room_id > 0 else "전체 방"
     if not matches:
         raise InternalApiError(
-            "NOT_FOUND", f"'{name}' 이름과 일치하는 장치를 roomId={room_id} 에서 찾을 수 없습니다."
+            "NOT_FOUND", f"'{name}' 이름과 일치하는 장치를 {scope} 에서 찾을 수 없습니다."
         )
     if len(matches) > 1:
         raise InternalApiError(

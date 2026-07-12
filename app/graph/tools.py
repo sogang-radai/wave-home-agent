@@ -153,13 +153,13 @@ def make_list_devices_tool(user_id: int) -> BaseTool:
 
 
 class _GetDeviceCapabilitiesArgs(BaseModel):
-    room_id: int = Field(..., description="장치가 속한 방 ID")
+    room_id: int = Field(0, description="장치가 속한 방 ID. 모르면 0(전체 방 검색)")
     device: str = Field(..., description="장치 이름(부분 일치, 예: '거실 조명')")
 
 
 def make_get_device_capabilities_tool(user_id: int) -> BaseTool:
     @tool("get_device_capabilities", args_schema=_GetDeviceCapabilitiesArgs)
-    async def _get_device_capabilities(room_id: int, device: str) -> str:
+    async def _get_device_capabilities(room_id: int = 0, device: str = "") -> str:
         """장치 이름으로 실행 가능한 action/query 목록(paramsSchema 포함)을 조회합니다.
         control_device/query_device 호출 전에 사용 가능한 이름을 확인할 때 씁니다."""
         device_id = await devices_internal.resolve_device_id(room_id, device, user_id=user_id)
@@ -170,7 +170,7 @@ def make_get_device_capabilities_tool(user_id: int) -> BaseTool:
 
 
 class _ControlDeviceArgs(BaseModel):
-    room_id: int = Field(..., description="장치가 속한 방 ID")
+    room_id: int = Field(0, description="장치가 속한 방 ID. 모르면 0(전체 방 검색)")
     device: str = Field(..., description="장치 이름(부분 일치, 예: '거실 조명')")
     action: str = Field(..., description="실행할 action 이름 (get_device_capabilities 결과 참고)")
     params: dict[str, Any] = Field(default_factory=dict, description="action params")
@@ -180,9 +180,18 @@ class _ControlDeviceArgs(BaseModel):
 def make_control_device_tool(user_id: int) -> BaseTool:
     @tool("control_device", args_schema=_ControlDeviceArgs)
     async def _control_device(
-        room_id: int, device: str, action: str, params: Optional[dict[str, Any]] = None, exec_mode: ExecMode = "once"
+        room_id: int = 0,
+        device: str = "",
+        action: str = "",
+        params: Optional[dict[str, Any]] = None,
+        exec_mode: ExecMode = "once",
     ) -> str:
-        """장치의 action(전원, 밝기 등)을 즉시 실행합니다."""
+        """장치의 action(전원, 밝기, 색상 등)을 즉시 실행합니다.
+        컬러 조명 color 예: action='color', params={'r':255,'g':64,'b':0}
+        밝기 예: action='brightness', params={'value':40}
+        색온도 예: action='temperature', params={'value':2700}
+        TV 볼륨/채널/D-pad 등 Repeat action은 params.count(1~32)로 반복 횟수를 지정합니다.
+        예: 볼륨 10칸 → action='volume_up', params={'count': 10}, exec_mode='once'."""
         device_id = await devices_internal.resolve_device_id(room_id, device, user_id=user_id)
         result = await devices_internal.invoke_device_action(
             device_id,
@@ -195,7 +204,7 @@ def make_control_device_tool(user_id: int) -> BaseTool:
 
 
 class _QueryDeviceArgs(BaseModel):
-    room_id: int = Field(..., description="장치가 속한 방 ID")
+    room_id: int = Field(0, description="장치가 속한 방 ID. 모르면 0(전체 방 검색)")
     device: str = Field(..., description="장치 이름(부분 일치)")
     query: str = Field(..., description="조회할 query 이름 (get_device_capabilities 결과 참고)")
     params: dict[str, Any] = Field(default_factory=dict)
@@ -203,7 +212,9 @@ class _QueryDeviceArgs(BaseModel):
 
 def make_query_device_tool(user_id: int) -> BaseTool:
     @tool("query_device", args_schema=_QueryDeviceArgs)
-    async def _query_device(room_id: int, device: str, query: str, params: Optional[dict[str, Any]] = None) -> str:
+    async def _query_device(
+        room_id: int = 0, device: str = "", query: str = "", params: Optional[dict[str, Any]] = None
+    ) -> str:
         """장치의 실시간 센서·상태 값 하나를 조회합니다(예: power, brightness, state)."""
         device_id = await devices_internal.resolve_device_id(room_id, device, user_id=user_id)
         result = await devices_internal.query_device(device_id, query, QueryDeviceRequest(params=params or {}))
@@ -213,13 +224,13 @@ def make_query_device_tool(user_id: int) -> BaseTool:
 
 
 class _GetDeviceStateArgs(BaseModel):
-    room_id: int = Field(..., description="장치가 속한 방 ID")
+    room_id: int = Field(0, description="장치가 속한 방 ID. 모르면 0(전체 방 검색)")
     device: str = Field(..., description="장치 이름(부분 일치)")
 
 
 def make_get_device_state_tool(user_id: int) -> BaseTool:
     @tool("get_device_state", args_schema=_GetDeviceStateArgs)
-    async def _get_device_state(room_id: int, device: str) -> str:
+    async def _get_device_state(room_id: int = 0, device: str = "") -> str:
         """장치의 전체 런타임 상태 스냅샷을 조회합니다."""
         device_id = await devices_internal.resolve_device_id(room_id, device, user_id=user_id)
         state = await devices_internal.get_device_state(device_id)

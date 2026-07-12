@@ -85,6 +85,8 @@ def _make_domain_node(domain: Domain, user_id: int):
             "user_id": state["user_id"],
             "chat_history_id": state.get("chat_history_id"),
             "now": state.get("now"),
+            "demo_runtime_id": state.get("demo_runtime_id"),
+            "personal_prompt": state.get("personal_prompt"),
             "retrieved": state.get("retrieved") or [],
             "model": state.get("model"),
             "rounds": 0,

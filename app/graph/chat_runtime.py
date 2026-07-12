@@ -3,6 +3,7 @@ from typing import Any, AsyncIterator, Callable, Awaitable
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
+from app.clients.demo_context import reset_demo_runtime_id, set_demo_runtime_id
 from app.graph.turn_graph import BACKGROUND_TAG, build_chat_graph, scrub_disclaimer
 from app.schemas.chat import ChatTurnRequest, ChatTurnResponse, ToolCallRecord
 from app.services.llm import default_model_name
@@ -34,12 +35,24 @@ def _extract_text(content: Any) -> str:
 
 
 def _to_initial_state(body: ChatTurnRequest) -> ChatTurnState:
-    messages = [_ROLE_TO_MESSAGE[m.role](content=m.content) for m in body.messages]
+    personal_parts: list[str] = []
+    messages = []
+    for message in body.messages:
+        content = (message.content or "").strip()
+        if not content:
+            continue
+        if message.role == "system":
+            personal_parts.append(content)
+            continue
+        messages.append(_ROLE_TO_MESSAGE[message.role](content=content))
+
     return ChatTurnState(
         messages=messages,
         user_id=body.userId,
         chat_history_id=body.chatHistoryId,
         now=body.context.now,
+        demo_runtime_id=body.context.demoRuntimeId,
+        personal_prompt="\n\n".join(personal_parts) or None,
         retrieved=[r.model_dump() for r in body.context.retrieved],
         model=body.model,
         rounds=0,
@@ -76,6 +89,7 @@ def _summarize_tool_result(name: str, raw: str) -> Any:
 async def stream_turn(body: ChatTurnRequest, disconnect: Callable[[], Awaitable[bool]]) -> AsyncIterator[bytes]:
     graph = build_chat_graph(body.userId)
     state = _to_initial_state(body)
+    demo_token = set_demo_runtime_id(body.context.demoRuntimeId)
     current_answer = ""
 
     try:
@@ -125,13 +139,19 @@ async def stream_turn(body: ChatTurnRequest, disconnect: Callable[[], Awaitable[
         yield b"data: [DONE]\n\n"
     except Exception as exc:  # noqa: BLE001 - narrow on purpose: GeneratorExit must propagate for cancellation
         yield _sse({"type": "error", "error": _to_error_payload(exc)})
+    finally:
+        reset_demo_runtime_id(demo_token)
 
 
 async def run_turn_sync(body: ChatTurnRequest) -> ChatTurnResponse:
     graph = build_chat_graph(body.userId)
     state = _to_initial_state(body)
+    demo_token = set_demo_runtime_id(body.context.demoRuntimeId)
 
-    result = await graph.ainvoke(state)
+    try:
+        result = await graph.ainvoke(state)
+    finally:
+        reset_demo_runtime_id(demo_token)
     messages = result["messages"]
 
     tool_calls: list[ToolCallRecord] = []

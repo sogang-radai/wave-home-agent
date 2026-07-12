@@ -16,6 +16,7 @@ class RetrievedSnippet(BaseModel):
 
 class ChatContext(BaseModel):
     now: Optional[str] = None
+    demoRuntimeId: Optional[str] = None
     retrieved: list[RetrievedSnippet] = Field(default_factory=list)
 
 
