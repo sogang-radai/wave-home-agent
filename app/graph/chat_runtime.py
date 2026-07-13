@@ -34,6 +34,23 @@ def _extract_text(content: Any) -> str:
     return ""
 
 
+def _tool_run_id(event: dict[str, Any]) -> str:
+    run_id = event.get("run_id")
+    return str(run_id) if run_id else ""
+
+
+def _tool_output_ok(output: Any) -> bool:
+    """LangGraph ToolNode turns raised tool errors into ToolMessage(status=error)
+    and still emits on_tool_end — treat that as ok=false."""
+    if isinstance(output, ToolMessage):
+        return (output.status or "success") != "error"
+    if isinstance(output, list):
+        for item in output:
+            if isinstance(item, ToolMessage) and (item.status or "success") == "error":
+                return False
+    return True
+
+
 def _to_initial_state(body: ChatTurnRequest) -> ChatTurnState:
     personal_parts: list[str] = []
     messages = []
@@ -116,20 +133,39 @@ async def stream_turn(body: ChatTurnRequest, disconnect: Callable[[], Awaitable[
                     current_answer += text
                     yield _sse({"type": "message.delta", "content": text})
             elif kind == "on_tool_start":
-                yield _sse({"type": "tool.start", "name": event["name"], "args": event["data"].get("input")})
+                payload = {
+                    "type": "tool.start",
+                    "name": event["name"],
+                    "args": event["data"].get("input"),
+                }
+                run_id = _tool_run_id(event)
+                if run_id:
+                    payload["id"] = run_id
+                yield _sse(payload)
             elif kind == "on_tool_end":
                 output = event["data"].get("output")
-                yield _sse(
-                    {
-                        "type": "tool.end",
-                        "name": event["name"],
-                        "ok": True,
-                        "result": _summarize_tool_result(event["name"], str(output)),
-                    }
-                )
+                payload = {
+                    "type": "tool.end",
+                    "name": event["name"],
+                    "ok": _tool_output_ok(output),
+                    "result": _summarize_tool_result(event["name"], str(output)),
+                }
+                run_id = _tool_run_id(event)
+                if run_id:
+                    payload["id"] = run_id
+                yield _sse(payload)
             elif kind == "on_tool_error":
                 error = event["data"].get("error")
-                yield _sse({"type": "tool.end", "name": event["name"], "ok": False, "result": str(error)})
+                payload = {
+                    "type": "tool.end",
+                    "name": event["name"],
+                    "ok": False,
+                    "result": str(error),
+                }
+                run_id = _tool_run_id(event)
+                if run_id:
+                    payload["id"] = run_id
+                yield _sse(payload)
 
         final_answer = scrub_disclaimer(current_answer) if current_answer else current_answer
         yield _sse(
