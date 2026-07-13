@@ -42,6 +42,9 @@ def _to_initial_state(body: ChatTurnRequest) -> ChatTurnState:
         if not content:
             continue
         if message.role == "system":
+            # Replace semantics: wave-server sends the current personal prompt as a
+            # single system message. If several arrive, keep only the last so an
+            # updated settings prompt never stacks on top of an older one.
             personal_parts.append(content)
             continue
         messages.append(_ROLE_TO_MESSAGE[message.role](content=content))
@@ -52,7 +55,7 @@ def _to_initial_state(body: ChatTurnRequest) -> ChatTurnState:
         chat_history_id=body.chatHistoryId,
         now=body.context.now,
         demo_runtime_id=body.context.demoRuntimeId,
-        personal_prompt="\n\n".join(personal_parts) or None,
+        personal_prompt=personal_parts[-1] if personal_parts else None,
         retrieved=[r.model_dump() for r in body.context.retrieved],
         model=body.model,
         rounds=0,
