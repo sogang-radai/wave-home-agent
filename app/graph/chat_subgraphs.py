@@ -60,12 +60,16 @@ _DOMAIN_INTRO: dict[Domain, str] = {
         "장치는 이름(부분일치)+roomId 로 지정하세요, deviceId 를 직접 요구하지 마세요. "
         "'내 방'처럼 사용자가 방을 특정하지 않으면, query_db(room_user_map, filter:{userId}) 또는 "
         "query_db(room, filter:{userId})로 사용자가 속한 방을 먼저 확인한 뒤 그 roomId를 쓰세요. "
-        "그래도 방이 여러 개면 사용자에게 되물으세요."
+        "그래도 방이 여러 개면 사용자에게 되물으세요. "
+        "'매일/모든 요일' 일정은 create_schedule_task를 schedule_kind=weekly로 "
+        "day_of_week=mon..sun 각각 한 번씩 호출하세요(once 날짜 7개 금지). "
+        "category는 posture|sleep|diet|mental|life만 쓰고, 운동은 posture, 기타는 life."
     ),
     "general": (
         "당신은 WaveHome의 건강 및 생활 어시스턴트입니다.\n"
         "사용 가능한 tool: query_db, rag_search, 기기 조회/제어/예약 tool 일체, "
-        "일정(schedule_task) CRUD tool 일체, 알람(alarm) CRUD tool 일체"
+        "일정(schedule_task) CRUD tool 일체, 알람(alarm) CRUD tool 일체. "
+        "'매일' 일정은 weekly+day_of_week mon..sun 각각 호출(once 7개 금지)."
     ),
 }
 

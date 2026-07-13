@@ -14,7 +14,7 @@ from datetime import date
 from typing import Any, Literal, Optional
 
 from langchain_core.tools import BaseTool, tool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.tools.db_query import TABLE_SPECS, DbQuery, DbQueryError, DbQueryResultItem, MAX_QUERIES, query_db
 from app.tools import alarms_internal, devices_internal, rules_internal, schedule_tasks_internal
@@ -547,24 +547,60 @@ def _derive_day_of_week(event_date: str) -> DayOfWeek:
     return _WEEKDAY_CODES[parsed.weekday()]
 
 
+_CATEGORY_ALIASES: dict[str, ScheduleCategory] = {
+    "posture": "posture",
+    "sleep": "sleep",
+    "diet": "diet",
+    "mental": "mental",
+    "life": "life",
+    # Common model slips that used to fail pydantic validation mid multi-day create.
+    "exercise": "posture",
+    "workout": "posture",
+    "fitness": "posture",
+    "general": "life",
+    "other": "life",
+    "etc": "life",
+    "daily": "life",
+}
+
+
+def _normalize_schedule_category(value: Any) -> ScheduleCategory:
+    if not isinstance(value, str):
+        raise ValueError("category는 문자열이어야 합니다.")
+    key = value.strip().lower()
+    mapped = _CATEGORY_ALIASES.get(key)
+    if mapped is None:
+        raise ValueError(
+            "category는 posture|sleep|diet|mental|life 중 하나여야 합니다 "
+            f"(받은 값: {value!r}). 운동은 posture, 기타는 life를 쓰세요."
+        )
+    return mapped
+
+
 class _CreateScheduleTaskArgs(BaseModel):
     title: str = Field(..., description="일정 제목")
     category: ScheduleCategory = Field(
         ...,
         description="'posture'|'sleep'|'diet'|'mental'|'life' 중 하나. 프런트가 이 5개만 라벨로 표시한다. "
-        "병원 예약·행정 용무처럼 나머지 4개에 안 맞으면 'life'를 쓰세요.",
+        "운동·스트레칭은 posture, 병원·행정·기타는 life.",
     )
     schedule_kind: Literal["weekly", "once"] = Field("weekly", description="weekly=매주 반복, once=1회성")
     day_of_week: Optional[DayOfWeek] = Field(
         None,
         description="'mon'..'sun'. schedule_kind='weekly'일 때만 채우세요. "
-        "'once'일 때는 event_date로부터 서버가 계산하므로 생략하세요.",
+        "'once'일 때는 event_date로부터 서버가 계산하므로 생략하세요. "
+        "'매일/모든 요일'이면 weekly로 mon~sun 각각 한 번씩 호출하세요(once 7개가 아님).",
     )
     event_date: Optional[str] = Field(
         None, description="schedule_kind='once'일 때 필수, 'YYYY-MM-DD'. weekly에는 넣지 마세요."
     )
     start_minute: Optional[int] = Field(None, description="자정 기준 시작 분(0~1440)")
     end_minute: Optional[int] = Field(None, description="자정 기준 종료 분(0~1440)")
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _coerce_category(cls, value: Any) -> ScheduleCategory:
+        return _normalize_schedule_category(value)
 
 
 def make_create_schedule_task_tool(user_id: int) -> BaseTool:
@@ -579,7 +615,10 @@ def make_create_schedule_task_tool(user_id: int) -> BaseTool:
         end_minute: Optional[int] = None,
     ) -> str:
         """새로운 반복 일정 또는 1회성 일정을 추가합니다(createdBy=agent 로 저장됨).
-        once는 day_of_week를 event_date로부터 자동 계산하므로 보내지 않아도 됩니다."""
+        once는 day_of_week를 event_date로부터 자동 계산하므로 보내지 않아도 됩니다.
+        '매일/모든 요일' 요청은 schedule_kind=weekly로 day_of_week=mon..sun 을 각각 한 번씩
+        호출하세요. once+날짜 7개는 쓰지 마세요."""
+        category = _normalize_schedule_category(category)
         if schedule_kind == "once":
             if not event_date:
                 raise ValueError("schedule_kind='once'에는 event_date('YYYY-MM-DD')가 필요합니다.")
