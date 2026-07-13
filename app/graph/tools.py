@@ -138,15 +138,19 @@ def make_rag_search_tool(*, allowed_collections: Optional[set[str]] = None) -> B
 
 
 class _ListDevicesArgs(BaseModel):
-    room_id: Optional[int] = Field(None, description="조회할 방 ID (생략 시 전체)")
+    room_id: Optional[int] = Field(
+        None, description="조회할 방 ID. 모르면 생략하거나 0(전체 방)"
+    )
 
 
 def make_list_devices_tool(user_id: int) -> BaseTool:
     @tool("list_devices", args_schema=_ListDevicesArgs)
     async def _list_devices(room_id: Optional[int] = None) -> str:
         """방에 속한 가전 기기 요약(연결 상태 포함)을 조회합니다. 세부 action/query 는
-        get_device_capabilities 로 확인하세요."""
-        devices = await devices_internal.list_devices(user_id=user_id, room_id=room_id)
+        get_device_capabilities 로 확인하세요. room_id를 모르면 생략하거나 0으로 두면
+        사용자 범위 전체를 조회합니다."""
+        scoped_room = room_id if room_id and room_id > 0 else None
+        devices = await devices_internal.list_devices(user_id=user_id, room_id=scoped_room)
         return _to_json([d.model_dump(by_alias=True) for d in devices])
 
     return _list_devices
@@ -172,7 +176,10 @@ def make_get_device_capabilities_tool(user_id: int) -> BaseTool:
 class _ControlDeviceArgs(BaseModel):
     room_id: int = Field(0, description="장치가 속한 방 ID. 모르면 0(전체 방 검색)")
     device: str = Field(..., description="장치 이름(부분 일치, 예: '거실 조명')")
-    action: str = Field(..., description="실행할 action 이름 (get_device_capabilities 결과 참고)")
+    action: str = Field(
+        ...,
+        description="실행할 action 이름. get_device_capabilities 결과만 사용 (전원은 on|off|toggle)",
+    )
     params: dict[str, Any] = Field(default_factory=dict, description="action params")
     exec_mode: ExecMode = Field("once", description="once|repeat|toggle")
 
@@ -186,7 +193,9 @@ def make_control_device_tool(user_id: int) -> BaseTool:
         params: Optional[dict[str, Any]] = None,
         exec_mode: ExecMode = "once",
     ) -> str:
-        """장치의 action(전원, 밝기, 색상 등)을 즉시 실행합니다.
+        """장치의 action을 즉시 실행합니다. action 이름은 반드시 get_device_capabilities 에
+        나온 것만 쓰세요(플러그/조명/TV 전원은 'on'|'off'|'toggle'). turn_off/power_off/
+        switch/끄기 같은 이름은 쓰지 마세요.
         컬러 조명 color 예: action='color', params={'r':255,'g':64,'b':0}
         밝기 예: action='brightness', params={'value':40}
         색온도 예: action='temperature', params={'value':2700}
@@ -215,7 +224,9 @@ def make_query_device_tool(user_id: int) -> BaseTool:
     async def _query_device(
         room_id: int = 0, device: str = "", query: str = "", params: Optional[dict[str, Any]] = None
     ) -> str:
-        """장치의 실시간 센서·상태 값 하나를 조회합니다(예: power, brightness, state)."""
+        """장치의 실시간 센서·상태 값 하나를 조회합니다.
+        query 는 get_device_capabilities 의 queries 이름만 쓰세요(예: power, switch, status, brightness).
+        off/on/turn_off 같은 action 이름을 query 에 넣지 마세요."""
         device_id = await devices_internal.resolve_device_id(room_id, device, user_id=user_id)
         result = await devices_internal.query_device(device_id, query, QueryDeviceRequest(params=params or {}))
         return _to_json(result.model_dump())

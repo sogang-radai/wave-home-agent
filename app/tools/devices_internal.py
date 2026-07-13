@@ -10,6 +10,7 @@ REST 를 그대로 복제한 설계이고 백엔드도 미구현이다. 대신 �
 roomId+장치이름 해석은 resolve_device_id() 로 처리한다(app/graph/tools.py 가 사용).
 """
 
+import re
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -323,7 +324,7 @@ _MOCK_CAPABILITIES: dict[str, DeviceClassCapabilities] = {
     ),
 }
 
-# id 체계는 db_query.py의 MOCK_DEVICES/mock.db와 1:1(1~13). 침실(room 2) 장치는 user 1 전용,
+# id 체계는 db_query.py의 MOCK_DEVICES/mock.db와 1:1(1~14). 침실(room 2) 장치는 user 1 전용,
 # 거실·부엌(room 1·3) 장치는 두 유저 공용 — MOCK_DEVICE_USER_MAP 과 정합.
 _MOCK_STATE: dict[int, dict[str, Any]] = {
     3: {  # Wave Station
@@ -339,9 +340,10 @@ _MOCK_STATE: dict[int, dict[str, Any]] = {
         "last_ir": None,
     },
     6: {"switch": True, "voltage": 231.4, "current": 88.2, "power": 20.5, "energy": 6.3},    # 플러그1 - 선풍기
-    7: {"switch": True, "voltage": 232.1, "current": 42.0, "power": 9.7, "energy": 3.1},     # 플러그2 - 컴퓨터
+    7: {"switch": True, "voltage": 232.1, "current": 1490.0, "power": 350.0, "energy": 3.1}, # 플러그2 - 컴퓨터
     8: {"switch": True, "voltage": 231.8, "current": 118.2, "power": 27.7, "energy": 12.4},  # 플러그3 - 에어컨
     9: {"switch": False, "voltage": 230.9, "current": 0.0, "power": 0.0, "energy": 1.8},     # 플러그4 - 인덕션
+    14: {"switch": False, "voltage": 231.2, "current": 0.0, "power": 0.0, "energy": 0.4},    # 플러그5 - 전자레인지
     10: {  # 침실 TV (samsung_g7)
         "on": True,
         "volume": 15,
@@ -434,10 +436,12 @@ async def list_devices(
     enabled: Optional[bool] = None,
 ) -> list[DeviceSummary]:
     client = _client()
+    # room_id <= 0 means "all rooms" (LLM often passes 0 like other device tools).
+    scoped_room = room_id if room_id is not None and room_id > 0 else None
     if client.is_mock:
         items = MOCK_DEVICES
-        if room_id is not None:
-            items = [d for d in items if d["roomId"] == room_id]
+        if scoped_room is not None:
+            items = [d for d in items if d["roomId"] == scoped_room]
         if device_class is not None:
             items = [d for d in items if d["class"] == device_class]
         if user_id is not None:
@@ -449,7 +453,7 @@ async def list_devices(
         k: v
         for k, v in {
             "userId": user_id,
-            "roomId": room_id,
+            "roomId": scoped_room,
             "class": device_class,
             "connected": connected,
             "enabled": enabled,
@@ -508,6 +512,7 @@ async def get_device_state(device_id: int) -> DeviceStateSnapshot:
 
 
 async def query_device(device_id: int, query_name: str, req: QueryDeviceRequest) -> QueryDeviceResponse:
+    query_name = _normalize_device_query(query_name)
     client = _client()
     if client.is_mock:
         device = _mock_device_by_id(device_id)
@@ -531,9 +536,61 @@ async def query_device(device_id: int, query_name: str, req: QueryDeviceRequest)
     return QueryDeviceResponse.model_validate({**response, "deviceId": hex_to_device_id(response["deviceId"])})
 
 
+def _normalize_device_query(query_name: str) -> str:
+    """Map action-like names LLMs put in query= to a real status query."""
+    raw = (query_name or "").strip()
+    low = raw.lower()
+    if low in {
+        "off", "on", "toggle",
+        "power_off", "power_on", "turn_off", "turn_on",
+        "switch_off", "switch_on", "poweroff", "poweron", "turnoff", "turnon",
+        "disable", "enable", "shutdown", "start", "stop",
+    } or raw in {"끄기", "켜기", "전원끄기", "전원켜기", "토글"}:
+        # status/state is accepted for every demo class; switch is plug-only.
+        return "status"
+    return raw
+
+
+def _normalize_device_action(action_name: str, params: Optional[dict[str, Any]] = None) -> str:
+    """Map common LLM-invented power action aliases to catalog names (on/off/toggle)."""
+    raw = (action_name or "").strip()
+    action = raw.lower()
+    if action in {
+        "on", "power_on", "turn_on", "switch_on", "poweron", "turnon", "switchon",
+        "enable", "start",
+    } or raw in {"켜기", "전원켜기", "전원_켜기"}:
+        return "on"
+    if action in {
+        "off", "power_off", "turn_off", "switch_off", "poweroff", "turnoff", "switchoff",
+        "disable", "stop", "shutdown",
+    } or raw in {"끄기", "전원끄기", "전원_끄기"}:
+        return "off"
+    if action in {"toggle", "power_toggle", "switch_toggle"} or raw in {"토글", "전환"}:
+        return "toggle"
+    if action in {"switch", "set_switch", "set_power"}:
+        params = params or {}
+        for key in ("value", "switch", "on", "power", "state", "enabled"):
+            if key not in params:
+                continue
+            value = params[key]
+            if isinstance(value, bool):
+                return "on" if value else "off"
+            if isinstance(value, (int, float)):
+                return "on" if value else "off"
+            if isinstance(value, str):
+                text = value.strip().lower()
+                if text in {"on", "true", "1", "켜기"}:
+                    return "on"
+                if text in {"off", "false", "0", "끄기"}:
+                    return "off"
+        return "toggle"
+    return raw
+
+
 async def invoke_device_action(
     device_id: int, action_name: str, req: InvokeDeviceRequest
 ) -> InvokeDeviceResponse:
+    action_name = _normalize_device_action(action_name, req.params)
     client = _client()
     if client.is_mock:
         device = _mock_device_by_id(device_id)
@@ -707,8 +764,33 @@ async def send_tts(device_id: int, req: SendTtsRequest) -> dict[str, Any]:
         _raise_from_tool_error(exc)
 
 
+def _split_device_name_tokens(text: str) -> list[str]:
+    return [token for token in re.split(r"[\s\-_/·,]+", text.strip().lower()) if token]
+
+
+def _device_query_matches(item: dict[str, Any], needle: str) -> bool:
+    """이름·설명 부분일치, 또는 질의 토큰이 이름+설명에 모두 포함되면 매칭.
+
+    예: 장치 name='플러그1 - 선풍기', description='거실 선풍기 플러그' ← 질의 '거실 선풍기'
+    """
+    needle = needle.strip().lower()
+    if not needle:
+        return False
+
+    name = str(item.get("name", "")).lower()
+    description = str(item.get("description", "")).lower()
+    if needle in name or needle in description:
+        return True
+
+    tokens = _split_device_name_tokens(needle)
+    if len(tokens) < 2:
+        return False
+    haystack = f"{name} {description}"
+    return all(token in haystack for token in tokens)
+
+
 async def resolve_device_id(room_id: int, name: str, *, user_id: Optional[int] = None) -> int:
-    """roomId 범위에서 장치 이름 부분일치(대소문자 무시)로 deviceId 해석.
+    """roomId 범위에서 장치 이름/설명 부분일치(대소문자 무시)로 deviceId 해석.
 
     db_query.py 의 device 테이블 조회로 구현한다(device-tool-api.md §설계원칙 4).
     room_id 가 0 이하거나 유효하지 않으면 사용자 범위 전체에서 검색한다.
@@ -725,8 +807,7 @@ async def resolve_device_id(room_id: int, name: str, *, user_id: Optional[int] =
     if result.error is not None:
         raise InternalApiError(result.error.code, result.error.message)
 
-    needle = name.strip().lower()
-    matches = [item for item in result.items if needle in str(item.get("name", "")).lower()]
+    matches = [item for item in result.items if _device_query_matches(item, name)]
     scope = f"roomId={room_id}" if room_id and room_id > 0 else "전체 방"
     if not matches:
         raise InternalApiError(
