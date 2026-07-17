@@ -25,7 +25,12 @@ def default_model_name() -> str:
     """Returns the currently configured provider's default model name, for
     surfacing in response `model` fields without hardcoding a provider."""
     settings = get_settings()
-    return settings.openai_model if _provider() == "openai" else settings.gemini_model
+    provider = _provider()
+    if provider == "openai":
+        return settings.openai_model
+    if provider == "ollama":
+        return settings.ollama_chat_model
+    return settings.gemini_model
 
 
 def _structured_method(provider: str) -> str:
@@ -33,14 +38,20 @@ def _structured_method(provider: str) -> str:
     tool_choice for a hardcoded allowlist of model-name substrings that does not
     include gemini-3.1-flash-lite, so json_mode (Gemini's native response_schema)
     is used instead. OpenAI's function_calling mode has no such gap and is the
-    more reliable choice there."""
-    return "json_mode" if provider == "gemini" else "function_calling"
+    more reliable choice there.
+
+    Ollama-served models are grouped with Gemini here too: whether tool_choice
+    forcing works reliably through Ollama's OpenAI-compat layer depends on the
+    served model/version, so json_mode (plain JSON-schema prompting) is the
+    safer default until a specific served model is verified to support it."""
+    return "function_calling" if provider == "openai" else "json_mode"
 
 
 def get_llm(model: Optional[str] = None) -> Optional[BaseChatModel]:
     """Returns a chat model client for `model` (docs/api.md §1.1's per-request
     hint), or the configured default if omitted, or None if no API key is
-    configured. The provider (Gemini or OpenAI) is selected by LLM_PROVIDER.
+    configured. The provider (Gemini, OpenAI, or Ollama-served Gemma) is
+    selected by LLM_PROVIDER.
 
     Callers must treat None as "no LLM available" and fall back to rule-based
     generation, mirroring the WAVEHOME_CORE_API_MOCK fallback pattern. Clients
@@ -54,6 +65,14 @@ def get_llm(model: Optional[str] = None) -> Optional[BaseChatModel]:
         api_key = settings.openai_api_key
         default_model = settings.openai_model
         timeout_ms = settings.openai_timeout_ms
+    elif provider == "ollama":
+        # Ollama doesn't validate this key, but langchain_openai rejects an
+        # empty one - app/clients/ollama.py's OLLAMA_BASE_URL is the same
+        # server, just addressed at its OpenAI-compat /v1 path here instead
+        # of proxied through app/routers/llm.py.
+        api_key = settings.ollama_api_key
+        default_model = settings.ollama_chat_model
+        timeout_ms = settings.ollama_timeout_ms
     else:
         api_key = settings.gemini_api_key
         default_model = settings.gemini_model
@@ -70,6 +89,18 @@ def get_llm(model: Optional[str] = None) -> Optional[BaseChatModel]:
                 model=model_name,
                 api_key=api_key,
                 timeout=timeout_ms / 1000,
+            )
+        elif provider == "ollama":
+            # max_retries=0: ChatOpenAI's own default (2) would silently repeat a
+            # full `timeout`-length wait on top of invoke_text/invoke_structured's
+            # own 2-attempt retry, so a slow/overloaded model could take up to
+            # timeout * 3 * 2 before falling back instead of the intended timeout * 2.
+            _llm_cache[cache_key] = ChatOpenAI(
+                model=model_name,
+                api_key=api_key,
+                base_url=f"{settings.ollama_base_url.rstrip('/')}/v1",
+                timeout=timeout_ms / 1000,
+                max_retries=0,
             )
         else:
             _llm_cache[cache_key] = ChatGoogleGenerativeAI(
