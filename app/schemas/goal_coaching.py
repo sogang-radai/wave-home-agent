@@ -32,6 +32,14 @@ class GoalCoachingRequest(BaseModel):
     embed: bool = False
 
 
+class GoalTitleJudgement(BaseModel):
+    """목표 제목이 습관 코칭에 쓸 만한지 LLM 이 판정한 결과. accept=false 이면
+    reason 을 사용자에게 그대로 보여 준다."""
+
+    accept: bool
+    reason: str = ""
+
+
 class GoalRecommendationItem(BaseModel):
     kind: Literal["action", "goal", "tip"]
     title: str
