@@ -108,7 +108,7 @@ Frontend          : 화면 표시, 사용자 입력
 ## 환경 변수 상세
 
 ```env
-# "gemini" 또는 "openai" - app/services/llm.py의 get_llm()이 이 값에 따라 클라이언트를 선택.
+# "gemini" | "openai" | "ollama" - app/services/llm.py의 get_llm()이 이 값에 따라 클라이언트를 선택.
 LLM_PROVIDER=gemini
 
 GEMINI_API_KEY=
@@ -118,6 +118,11 @@ GEMINI_TIMEOUT_MS=20000
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-5.4-nano
 OPENAI_TIMEOUT_MS=20000
+
+# LLM_PROVIDER=ollama일 때 사용. 아래 OLLAMA_BASE_URL의 /v1(OpenAI 호환)을 ChatOpenAI로 그대로
+# 호출하므로 별도 SDK 연동이 없다. OLLAMA_API_KEY는 인증 없는 서버에서는 아무 값이나 둬도 된다.
+OLLAMA_CHAT_MODEL=gemma4:12b-mlx
+OLLAMA_API_KEY=ollama
 
 # sleep_agent/posture_agent/lifestyle_agent(app/tools/{sleep,posture,schedule}_api.py)가 사용.
 # observation_api.py는 카메라 이벤트 백엔드 테이블이 아직 없어 이 값을 읽지 않고 항상 mock만 반환합니다.

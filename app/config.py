@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     app_name: str = "WaveHome Agent Server"
     app_env: str = "local"
 
-    llm_provider: str = "gemini"  # "gemini" | "openai"
+    llm_provider: str = "gemini"  # "gemini" | "openai" | "ollama"
 
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.1-flash-lite"
@@ -17,6 +17,13 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-5.4-nano"
     openai_timeout_ms: int = 20000
+
+    # LLM_PROVIDER=ollama 일 때 app/services/llm.py의 get_llm()이 쓰는 채팅 모델. Ollama의
+    # OpenAI 호환 /v1/*(app/clients/ollama.py가 쓰는 것과 동일한 서버)를 그대로 ChatOpenAI로
+    # 호출하므로, api_key는 검증되지 않지만 langchain_openai가 빈 문자열을 거부해 placeholder가
+    # 필요하다 - 실제로 인증이 걸린 공유 서버라면 .env에서 덮어쓴다.
+    ollama_chat_model: str = "gemma4:12b-mlx"
+    ollama_api_key: str = "ollama"
 
     wavehome_core_api_base_url: str = "http://127.0.0.1:9000"
     wavehome_core_api_timeout_ms: int = 5000
