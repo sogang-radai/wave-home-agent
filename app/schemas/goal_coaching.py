@@ -41,7 +41,7 @@ class GoalTitleJudgement(BaseModel):
 
 
 class GoalRecommendationItem(BaseModel):
-    kind: Literal["action", "goal", "tip"]
+    kind: Literal["action", "tip"]
     title: str
     text: str
     actionable: bool = False

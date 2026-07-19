@@ -40,7 +40,7 @@ $extra_context
 - items (insufficientData 가 false 일 때): 목표 달성에 실제로 도움이 되는
   GoalRecommendationItem 을 1~3개 생성하세요. 반드시 위 [schedule_task 목록]이나
   [등록된 장치 목록]에 근거해 구체적으로 제안하세요(조회되지 않은 일정/장치를 지어내지 마세요).
-  - kind: action(실행 제안) | goal(목표 제시) | tip(팁)
+  - kind: action(실행 제안) | tip(팁)
   - actionable=true 인 경우에만 actionType 을 schedule_task|automation_rule 중 하나로 채우고,
     actionType="schedule_task" 면 scheduleTaskJson 을, actionType="automation_rule" 이면
     ruleJson 을 실제로 적용 가능한 형태로 채우세요(모르면 actionable=false 로 두세요).
