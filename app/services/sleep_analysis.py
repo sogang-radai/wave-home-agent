@@ -3,18 +3,17 @@ background job (app/services/jobs.py), generates summaryText/reportText via LLM 
 rule-based fallback (mirrors app/graph/report_turn_graph.py's _rule_based_content), and
 optionally an embedding via Ollama (app/services/embeddings.py).
 
-PLAN_KIND is the "오늘 밤 추천 수면 시간" job: unlike SUMMARY/REPORT it delegates the whole
-gather+generate step to app/graph/sleep_plan_graph.py (a gather->generate LangGraph like
-app/services/weekly_plan.py's _graph) instead of calling invoke_text directly, since it also
-needs to independently query recent sleep/schedule data before generating. Its reportText is a
-json.dumps'd SleepPlanContent — see app/schemas/sleep_plan.py's docstring for why."""
+PLAN_KIND is the "오늘 밤 추천 수면 시간" job. sleep/reports 와 동일하게, 필요한 데이터
+(sessions/todaySchedule/tomorrowSchedule)는 C++ 백엔드가 SleepPlanRequest 에 인라인으로
+담아 보내므로 별도 gather 단계(db/query 툴 호출) 없이 바로 프롬프트를 구성해 생성한다
+(app/schemas/sleep_plan.py 의 docstring 참고 - 예전엔 gather->generate LangGraph 였으나
+왕복·스킵 위험 때문에 이 방식으로 단순화함)."""
 
 import json
 import logging
 from typing import Any
 
 from app.errors import AgentApiError
-from app.graph.sleep_plan_graph import build as build_sleep_plan_graph
 from app.schemas.jobs import JobRef
 from app.schemas.sleep_analysis import (
     SleepReportRequest,
@@ -22,11 +21,11 @@ from app.schemas.sleep_analysis import (
     SleepSummaryRequest,
     SleepSummaryResponse,
 )
-from app.schemas.sleep_plan import SleepPlanRequest, SleepPlanResult
+from app.schemas.sleep_plan import SleepPlanContent, SleepPlanRequest, SleepPlanResult
 from app.services.embeddings import generate_embedding
 from app.services.job_common import apply_embedding, create_job_or_409, spawn
 from app.services.jobs import job_store
-from app.services.llm import invoke_text
+from app.services.llm import invoke_structured, invoke_text
 from app.services.prompts import load_prompt
 
 
@@ -36,8 +35,6 @@ SUMMARY_KIND = "sleep_summary"
 REPORT_KIND = "sleep_report"
 PLAN_KIND = "sleep_plan"
 
-_sleep_plan_graph = build_sleep_plan_graph()
-
 
 def _rule_based_summary(body: SleepSummaryRequest) -> str:
     fields = body.window.model_dump(exclude_none=True, exclude={"id", "userId", "roomId", "sessionId"})
@@ -46,6 +43,15 @@ def _rule_based_summary(body: SleepSummaryRequest) -> str:
 
 def _rule_based_report(metrics: dict[str, Any]) -> str:
     return "; ".join(f"{k}: {v}" for k, v in metrics.items()) or "제공된 지표가 없습니다."
+
+
+def _rule_based_plan() -> SleepPlanContent:
+    return SleepPlanContent(
+        bedtimeMinute=23 * 60 + 30,
+        wakeMinute=7 * 60,
+        targetDurationMinutes=450,
+        rationale="충분한 데이터가 없어 기본 권장 수면 시간을 제안했어요.",
+    )
 
 
 def create_summary_job(body: SleepSummaryRequest) -> JobRef:
@@ -147,9 +153,21 @@ def create_plan_job(body: SleepPlanRequest) -> JobRef:
 
 async def _run_plan(job_id: str, body: SleepPlanRequest) -> None:
     job_store.mark_running(job_id)
-    result = await _sleep_plan_graph.ainvoke({"user_id": body.userId, "plan_date": body.planDate, "rounds": 0})
-    content = result["content"]
-    report_text = json.dumps(content.model_dump() if hasattr(content, "model_dump") else content, ensure_ascii=False)
+    prompt = load_prompt(
+        "sleep_plan",
+        "generate",
+        user_id=body.userId,
+        plan_date=body.planDate,
+        sessions=json.dumps([s.model_dump(exclude_none=True) for s in body.sessions], ensure_ascii=False),
+        today_schedule=json.dumps(
+            [t.model_dump(exclude_none=True) for t in body.todaySchedule], ensure_ascii=False
+        ),
+        tomorrow_schedule=json.dumps(
+            [t.model_dump(exclude_none=True) for t in body.tomorrowSchedule], ensure_ascii=False
+        ),
+    )
+    content = await invoke_structured(SleepPlanContent, prompt, fallback=_rule_based_plan())
+    report_text = json.dumps(content.model_dump(), ensure_ascii=False)
 
     embedding, _embedding_model, failed = await apply_embedding(
         job_id, report_text, None, body.embed, generate_embedding=generate_embedding

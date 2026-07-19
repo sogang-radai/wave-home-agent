@@ -267,6 +267,89 @@ _CONTEXT_SYSTEM_PROMPT = """당신은 WaveHome 인사이트 생성을 돕는 조
 주어진 힌트(context)만으로 인사이트를 만들기 부족할 때만 db/query·rag_search 로 추가 조회하세요.
 필요 없으면 tool을 호출하지 말고 "충분합니다"라고만 답하세요."""
 
+# dashboard_banner 는 집 전체를 총괄하는 홈 화면 배너다 - 한 영역(수면이면 수면만)에 치우치지
+# 않도록 gather 단계에서 수면·전력 데이터를 둘 다 확인하도록 명시적으로 유도한다(그 외
+# surface는 원래 자기 영역 하나만 보면 되므로 기본 프롬프트로 충분).
+_DASHBOARD_CONTEXT_SYSTEM_PROMPT = """당신은 WaveHome 홈 화면 배너를 위해 집 전체 상태를 살피는
+조사자입니다. 이 배너는 수면 하나만 다루는 게 아니라 수면·전력 등 집 전체를 총괄하는 메시지이므로,
+db/query 로 최근 sleep_report 와 power_report 를 모두 확인해 그중 오늘 언급할 가치가 있는 신호를
+찾으세요(하나만 조회하고 멈추지 마세요). 이미 주어진 힌트(context)만으로 충분하면 tool을 호출하지
+말고 "충분합니다"라고만 답하세요."""
+
+
+def _context_system_prompt(surface: str) -> str:
+    if surface == "dashboard_banner":
+        return _DASHBOARD_CONTEXT_SYSTEM_PROMPT
+    return _CONTEXT_SYSTEM_PROMPT
+
+
+# surface 별 text 분량 가이드. dashboard_banner 는 홈 화면에 단독 배너(헤드라인+본문)로 노출되므로
+# 프런트 목업(dashboardInsightData.js)처럼 "무슨 변화가 있었는지 근거 → 그 근거가 된 습관 →
+# 지금 습관을 유지/개선하면 기대할 수 있는 효과" 3단 구성의 3~4문장을 요구한다. 그 외 surface
+# 는 카드 목록으로 여러 개가 함께 노출되므로 기존처럼 1~2문장으로 짧게 유지한다.
+_DEFAULT_LENGTH_GUIDANCE = "text: 1~2문장 본문으로 간결하게 작성하세요."
+_LENGTH_GUIDANCE_BY_SURFACE: dict[str, str] = {
+    "dashboard_banner": (
+        "text: 3~4문장으로 구체적으로 작성하세요. 이 배너는 수면·전력 등 집 전체를 총괄하는 오늘의 "
+        "한 마디입니다 - 여러 영역 중 하나만 편협하게 다루지 말고, 조회된 데이터 중 오늘 가장 눈에 "
+        "띄는 신호(수면일 수도, 전력일 수도, 여러 영역이 겹친 패턴일 수도 있습니다)를 골라 "
+        "(1) 무슨 변화·패턴이 있었는지 근거를 제시하고, (2) 그 근거가 된 습관이나 조건을 언급한 뒤, "
+        "(3) 지금의 습관을 유지하거나 개선하면 어떤 효과를 기대할 수 있는지로 마무리하세요. "
+        "조회되지 않은 수치는 여전히 지어내지 말고, 대신 정성적인 표현으로 서술하세요."
+    ),
+}
+
+# dashboard_banner 는 홈 화면 배너 전용 문구다 - 사용자가 승인/거절할 수 있는 카드 UI가 없으므로
+# (프런트에 그런 화면 자체가 없음) actionable/automation_rule/schedule_task 를 절대 만들지
+# 않는다. 순수 안내 문구 1개만 생성한다.
+_NARRATIVE_ONLY_SURFACES = {"dashboard_banner"}
+
+_DEFAULT_ACTIONABLE_GUIDANCE = (
+    "actionable=true 인 경우에만 actionType 을 schedule_task|automation_rule|reservation 중 "
+    "하나로 채우고, actionType=\"schedule_task\" 면 scheduleTaskJson 을, actionType="
+    "\"automation_rule\" 이면 ruleJson 을 실제로 적용 가능한 형태로 채우세요(모르면 "
+    "actionable=false 로 두세요)."
+)
+_NARRATIVE_ONLY_ACTIONABLE_GUIDANCE = (
+    "이 화면은 순수 안내 문구 전용입니다 - actionable 은 항상 false 로, actionType/ruleJson/"
+    "scheduleTaskJson 은 항상 null 로 두세요. 자동화나 예약을 제안하지 마세요."
+)
+
+_DEFAULT_ITEM_COUNT_GUIDANCE = "items 는 보통 1~3개로 제한하되, 아래 [필수] 요구사항이 있으면 그 최소 개수를 우선하세요."
+_NARRATIVE_ONLY_ITEM_COUNT_GUIDANCE = "items 는 정확히 1개만 생성하세요(오늘의 배너 문구 하나)."
+
+
+def _length_guidance(surface: str) -> str:
+    return _LENGTH_GUIDANCE_BY_SURFACE.get(surface, _DEFAULT_LENGTH_GUIDANCE)
+
+
+def _actionable_guidance(surface: str) -> str:
+    if surface in _NARRATIVE_ONLY_SURFACES:
+        return _NARRATIVE_ONLY_ACTIONABLE_GUIDANCE
+    return _DEFAULT_ACTIONABLE_GUIDANCE
+
+
+def _item_count_guidance(surface: str) -> str:
+    if surface in _NARRATIVE_ONLY_SURFACES:
+        return _NARRATIVE_ONLY_ITEM_COUNT_GUIDANCE
+    return _DEFAULT_ITEM_COUNT_GUIDANCE
+
+
+def _force_narrative_only(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """LLM 이 프롬프트를 무시하고 actionable 항목을 만들 수 있으므로(실측: automation_rule
+    검증에서도 같은 패턴 확인됨) 코드 레벨에서 최종적으로 강제한다 - dashboard_banner 는
+    승인/거절 UI 자체가 프런트에 없으므로 actionable 항목을 내보내면 조용히 버려질 뿐이다.
+    items 도 정확히 1개로 자른다(그 이상은 화면에 노출될 곳이 없다)."""
+    forced = []
+    for item in items[:1]:
+        item = dict(item)
+        item["actionable"] = False
+        item["actionType"] = None
+        item["ruleJson"] = None
+        item["scheduleTaskJson"] = None
+        forced.append(item)
+    return forced
+
 
 def _seed_message(state: InsightGenerationState) -> HumanMessage:
     return HumanMessage(
@@ -521,7 +604,7 @@ async def gather(state: InsightGenerationState) -> dict[str, Any]:
         InsightGenerationState,
         tools,
         max_rounds=MAX_CONTEXT_ROUNDS,
-        system_prompt_fn=lambda _state: _CONTEXT_SYSTEM_PROMPT,
+        system_prompt_fn=lambda _state: _context_system_prompt(surface),
     )
     result = await loop.ainvoke({"messages": [_seed_message(state)], "rounds": 0})
     devices = await _fetch_devices(state["user_id"])
@@ -549,10 +632,16 @@ async def generate(state: InsightGenerationState) -> dict[str, Any]:
         devices=json.dumps(_devices_with_actions(devices, action_names_by_class), ensure_ascii=False),
         retry_feedback=_RETRY_FEEDBACK_TEXT if attempt > 0 else "",
         actionable_requirement=_ACTIONABLE_REQUIREMENT_TEXT if _needs_actionable(state) else "",
+        length_guidance=_length_guidance(state["surface"]),
+        actionable_guidance=_actionable_guidance(state["surface"]),
+        item_count_guidance=_item_count_guidance(state["surface"]),
     )
     batch = await invoke_structured(GeneratedInsightBatch, prompt, fallback=GeneratedInsightBatch(items=[]))
     items = [item.model_dump() for item in batch.items]
-    items = _validate_automation_rules(items, devices, action_names_by_class)
+    if state["surface"] in _NARRATIVE_ONLY_SURFACES:
+        items = _force_narrative_only(items)
+    else:
+        items = _validate_automation_rules(items, devices, action_names_by_class)
     attempts_done = attempt + 1
 
     if _needs_actionable(state) and not _meets_requirements(items) and attempts_done >= MAX_GENERATE_ATTEMPTS:

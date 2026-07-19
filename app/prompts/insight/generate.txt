@@ -12,11 +12,10 @@ $extra_context
 $devices
 
 각 인사이트는 다음을 만족해야 합니다:
-- title: 짧은 제목, text: 1~2문장 본문
+- title: 짧은 제목(이모지 1개 정도는 자연스러우면 붙여도 됩니다)
+- $length_guidance
 - kind: action(실행 제안) | goal(목표 제시) | tip(팁)
-- actionable=true 인 경우에만 actionType 을 schedule_task|automation_rule|reservation 중 하나로 채우고,
-  actionType="schedule_task" 면 scheduleTaskJson 을, actionType="automation_rule" 이면 ruleJson 을
-  실제로 적용 가능한 형태로 채우세요(모르면 actionable=false 로 두세요).
+- $actionable_guidance
 - 조회되지 않은 수치를 지어내지 마세요. 데이터가 부족하면(actionable 항목을 제외한) 인사이트 개수를 줄이세요.
 - actionType="automation_rule" 로 ruleJson.action 을 채울 때는 반드시 위 [등록된 장치 목록]에
   실제로 나온 device.id 를 deviceId 로, 그 장치의 "actions" 배열에 있는 이름만 action.name 으로
@@ -27,5 +26,5 @@ $devices
   만 있으면 예약, 둘 다 null 이면 무효한 룰입니다 - 반드시 하나는 채워야 합니다). 시간 기반 자동화면
   schedule 을 {"repeat":"daily"|"weekly"|"once","time":"HH:MM", ...} 형태로 채우고 trigger 는
   null 로 두세요.
-- items 는 보통 1~3개로 제한하되, 아래 [필수] 요구사항이 있으면 그 최소 개수를 우선하세요.
+- $item_count_guidance
 $actionable_requirement$retry_feedback

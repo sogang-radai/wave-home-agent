@@ -1,9 +1,11 @@
 """'오늘 밤 추천 수면 시간' 기능의 agent 쪽 요청/응답 스키마.
 
-C++ 백엔드의 GET /api/v1/sleep/today/plan 이 sleep_session/schedule_task 로부터
-결정론적 추천값을 계산해 sleep_plan 테이블에 캐싱하는 것과는 별개로, 이 스키마는
-그 캐시를 더 나은 자연어 근거(rationale)와 다듬어진 취침/기상 추천으로 보강하는
-agent job(app/services/sleep_analysis.py의 PLAN_KIND)의 입출력을 정의한다.
+취침/기상 시각 산정은 전적으로 에이전트가 담당한다(C++ 백엔드는 sleep_plan 테이블에
+캐싱된 값을 읽기만 하고 직접 계산하지 않는다 - service/sleep_plan_generator.cpp 참고).
+sleep/reports API(SleepReportRequest)와 동일한 패턴으로, 필요한 데이터(최근 sleep_session,
+오늘·내일 schedule_task)는 C++ 가 미리 조회해 payload 에 인라인으로 담아 보낸다 - 에이전트가
+gather 단계에서 db/query 툴로 스스로 조회하지 않는다(왕복이 늘어나고, LLM이 조회를 스킵할
+수도 있어 데이터가 항상 보장되지 않았다).
 
 C++ 쪽 runSleepJobSync() 는 GET /sleep/v1/jobs/{job_id} 의 result.reportText 를
 평문 string 으로만 이해하므로(app/routers/sleep_analysis.py 참고), SleepPlanResult.reportText
@@ -12,12 +14,18 @@ C++ 쪽 runSleepJobSync() 는 GET /sleep/v1/jobs/{job_id} 의 result.reportText 
 
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from app.schemas.sleep_analysis import SleepSessionRow
+from app.tools.schedule_tasks_internal import ScheduleTask
 
 
 class SleepPlanRequest(BaseModel):
     userId: int
     planDate: str  # 'YYYY-MM-DD', 이 계획이 적용되는 밤
+    sessions: list[SleepSessionRow] = Field(default_factory=list)  # 최근 7일 sleep_session
+    todaySchedule: list[ScheduleTask] = Field(default_factory=list)  # planDate 당일 일정
+    tomorrowSchedule: list[ScheduleTask] = Field(default_factory=list)  # planDate 다음날 일정(기상 제약 판단용)
     embed: bool = False
 
 
