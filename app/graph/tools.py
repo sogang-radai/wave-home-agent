@@ -64,7 +64,11 @@ def _describe_table(table: str) -> str:
         bits.append(f"선택 필터: {', '.join(optional)}")
     line = f"- {table}: " + (" / ".join(bits) if bits else "필터 없음")
     if "userId" in spec.allowed:
-        line += " (userId는 값과 무관하게 현재 사용자로 고정되지만, 키 자체는 반드시 포함해야 함)"
+        line += " (userId는 서버가 현재 사용자로 자동 주입)"
+    if table == "power_report":
+        line += " | period는 1h|24h|1w|1mo만 (month/day 금지). 하루 총량=period:24h+periodStart:YYYY-MM-DD"
+    if table == "sleep_report":
+        line += " | period는 daily|weekly"
     return line
 
 
@@ -87,7 +91,10 @@ def make_query_db_tool(user_id: int, *, allowed_tables: Optional[set[str]] = Non
 
     async def _query_db(queries: list[DbQuery]) -> str:
         for q in queries:
-            if "userId" in q.filter:
+            spec = TABLE_SPECS.get(q.table)
+            # Tables that accept userId always get the authenticated user injected,
+            # even when the model omits the key (otherwise required_any fails as 0건).
+            if spec is not None and "userId" in spec.allowed:
                 q.filter["userId"] = user_id
 
         results: list[DbQueryResultItem] = []
@@ -749,6 +756,10 @@ class _UpdateAlarmArgs(BaseModel):
     time_minute: Optional[int] = None
     days_of_week: Optional[list[DayOfWeek]] = None
     enabled: Optional[bool] = None
+    tts_text: Optional[str] = Field(
+        None,
+        description="Wave Station 등 TTS 알람 멘트. method.type=tts 인 알람의 text만 바꿉니다.",
+    )
 
 
 def make_update_alarm_tool(user_id: int) -> BaseTool:
@@ -759,8 +770,9 @@ def make_update_alarm_tool(user_id: int) -> BaseTool:
         time_minute: Optional[int] = None,
         days_of_week: Optional[list[DayOfWeek]] = None,
         enabled: Optional[bool] = None,
+        tts_text: Optional[str] = None,
     ) -> str:
-        """알람의 이름/시각/요일/활성 여부를 변경합니다."""
+        """알람의 이름/시각/요일/활성 여부/TTS 멘트를 변경합니다."""
         fields: dict[str, Any] = {}
         if name is not None:
             fields["name"] = name
@@ -770,6 +782,26 @@ def make_update_alarm_tool(user_id: int) -> BaseTool:
             fields["daysOfWeek"] = days_of_week
         if enabled is not None:
             fields["enabled"] = enabled
+        if tts_text is not None:
+            current = next(
+                (a for a in await alarms_internal.get_alarms(user_id) if a.id == alarm_id),
+                None,
+            )
+            method = current.method.model_dump() if current and current.method is not None else {}
+            if method.get("type") not in (None, "tts"):
+                return _to_json({
+                    "error": {
+                        "code": "INVALID_METHOD",
+                        "message": "TTS 멘트를 바꿀 수 있는 알람이 아닙니다.",
+                    }
+                })
+            fields["method"] = {
+                "type": "tts",
+                "speakerId": int(method.get("speakerId", 0)),
+                "text": tts_text,
+                "repeatCount": int(method.get("repeatCount", 3)),
+                "intervalSec": int(method.get("intervalSec", 20)),
+            }
         alarm = await alarms_internal.update_alarm(alarm_id, user_id, **fields)
         return _to_json(alarm.model_dump())
 
