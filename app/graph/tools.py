@@ -14,7 +14,7 @@ from datetime import date
 from typing import Any, Literal, Optional
 
 from langchain_core.tools import BaseTool, tool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.tools.db_query import TABLE_SPECS, DbQuery, DbQueryError, DbQueryResultItem, MAX_QUERIES, query_db
 from app.tools import alarms_internal, devices_internal, rules_internal, schedule_tasks_internal
@@ -138,28 +138,32 @@ def make_rag_search_tool(*, allowed_collections: Optional[set[str]] = None) -> B
 
 
 class _ListDevicesArgs(BaseModel):
-    room_id: Optional[int] = Field(None, description="조회할 방 ID (생략 시 전체)")
+    room_id: Optional[int] = Field(
+        None, description="조회할 방 ID. 모르면 생략하거나 0(전체 방)"
+    )
 
 
 def make_list_devices_tool(user_id: int) -> BaseTool:
     @tool("list_devices", args_schema=_ListDevicesArgs)
     async def _list_devices(room_id: Optional[int] = None) -> str:
         """방에 속한 가전 기기 요약(연결 상태 포함)을 조회합니다. 세부 action/query 는
-        get_device_capabilities 로 확인하세요."""
-        devices = await devices_internal.list_devices(user_id=user_id, room_id=room_id)
+        get_device_capabilities 로 확인하세요. room_id를 모르면 생략하거나 0으로 두면
+        사용자 범위 전체를 조회합니다."""
+        scoped_room = room_id if room_id and room_id > 0 else None
+        devices = await devices_internal.list_devices(user_id=user_id, room_id=scoped_room)
         return _to_json([d.model_dump(by_alias=True) for d in devices])
 
     return _list_devices
 
 
 class _GetDeviceCapabilitiesArgs(BaseModel):
-    room_id: int = Field(..., description="장치가 속한 방 ID")
+    room_id: int = Field(0, description="장치가 속한 방 ID. 모르면 0(전체 방 검색)")
     device: str = Field(..., description="장치 이름(부분 일치, 예: '거실 조명')")
 
 
 def make_get_device_capabilities_tool(user_id: int) -> BaseTool:
     @tool("get_device_capabilities", args_schema=_GetDeviceCapabilitiesArgs)
-    async def _get_device_capabilities(room_id: int, device: str) -> str:
+    async def _get_device_capabilities(room_id: int = 0, device: str = "") -> str:
         """장치 이름으로 실행 가능한 action/query 목록(paramsSchema 포함)을 조회합니다.
         control_device/query_device 호출 전에 사용 가능한 이름을 확인할 때 씁니다."""
         device_id = await devices_internal.resolve_device_id(room_id, device, user_id=user_id)
@@ -170,9 +174,12 @@ def make_get_device_capabilities_tool(user_id: int) -> BaseTool:
 
 
 class _ControlDeviceArgs(BaseModel):
-    room_id: int = Field(..., description="장치가 속한 방 ID")
+    room_id: int = Field(0, description="장치가 속한 방 ID. 모르면 0(전체 방 검색)")
     device: str = Field(..., description="장치 이름(부분 일치, 예: '거실 조명')")
-    action: str = Field(..., description="실행할 action 이름 (get_device_capabilities 결과 참고)")
+    action: str = Field(
+        ...,
+        description="실행할 action 이름. get_device_capabilities 결과만 사용 (전원은 on|off|toggle)",
+    )
     params: dict[str, Any] = Field(default_factory=dict, description="action params")
     exec_mode: ExecMode = Field("once", description="once|repeat|toggle")
 
@@ -180,9 +187,20 @@ class _ControlDeviceArgs(BaseModel):
 def make_control_device_tool(user_id: int) -> BaseTool:
     @tool("control_device", args_schema=_ControlDeviceArgs)
     async def _control_device(
-        room_id: int, device: str, action: str, params: Optional[dict[str, Any]] = None, exec_mode: ExecMode = "once"
+        room_id: int = 0,
+        device: str = "",
+        action: str = "",
+        params: Optional[dict[str, Any]] = None,
+        exec_mode: ExecMode = "once",
     ) -> str:
-        """장치의 action(전원, 밝기 등)을 즉시 실행합니다."""
+        """장치의 action을 즉시 실행합니다. action 이름은 반드시 get_device_capabilities 에
+        나온 것만 쓰세요(플러그/조명/TV 전원은 'on'|'off'|'toggle'). turn_off/power_off/
+        switch/끄기 같은 이름은 쓰지 마세요.
+        컬러 조명 color 예: action='color', params={'r':255,'g':64,'b':0}
+        밝기 예: action='brightness', params={'value':40}
+        색온도 예: action='temperature', params={'value':2700}
+        TV 볼륨/채널/D-pad 등 Repeat action은 params.count(1~32)로 반복 횟수를 지정합니다.
+        예: 볼륨 10칸 → action='volume_up', params={'count': 10}, exec_mode='once'."""
         device_id = await devices_internal.resolve_device_id(room_id, device, user_id=user_id)
         result = await devices_internal.invoke_device_action(
             device_id,
@@ -195,7 +213,7 @@ def make_control_device_tool(user_id: int) -> BaseTool:
 
 
 class _QueryDeviceArgs(BaseModel):
-    room_id: int = Field(..., description="장치가 속한 방 ID")
+    room_id: int = Field(0, description="장치가 속한 방 ID. 모르면 0(전체 방 검색)")
     device: str = Field(..., description="장치 이름(부분 일치)")
     query: str = Field(..., description="조회할 query 이름 (get_device_capabilities 결과 참고)")
     params: dict[str, Any] = Field(default_factory=dict)
@@ -203,8 +221,12 @@ class _QueryDeviceArgs(BaseModel):
 
 def make_query_device_tool(user_id: int) -> BaseTool:
     @tool("query_device", args_schema=_QueryDeviceArgs)
-    async def _query_device(room_id: int, device: str, query: str, params: Optional[dict[str, Any]] = None) -> str:
-        """장치의 실시간 센서·상태 값 하나를 조회합니다(예: power, brightness, state)."""
+    async def _query_device(
+        room_id: int = 0, device: str = "", query: str = "", params: Optional[dict[str, Any]] = None
+    ) -> str:
+        """장치의 실시간 센서·상태 값 하나를 조회합니다.
+        query 는 get_device_capabilities 의 queries 이름만 쓰세요(예: power, switch, status, brightness).
+        off/on/turn_off 같은 action 이름을 query 에 넣지 마세요."""
         device_id = await devices_internal.resolve_device_id(room_id, device, user_id=user_id)
         result = await devices_internal.query_device(device_id, query, QueryDeviceRequest(params=params or {}))
         return _to_json(result.model_dump())
@@ -213,13 +235,13 @@ def make_query_device_tool(user_id: int) -> BaseTool:
 
 
 class _GetDeviceStateArgs(BaseModel):
-    room_id: int = Field(..., description="장치가 속한 방 ID")
+    room_id: int = Field(0, description="장치가 속한 방 ID. 모르면 0(전체 방 검색)")
     device: str = Field(..., description="장치 이름(부분 일치)")
 
 
 def make_get_device_state_tool(user_id: int) -> BaseTool:
     @tool("get_device_state", args_schema=_GetDeviceStateArgs)
-    async def _get_device_state(room_id: int, device: str) -> str:
+    async def _get_device_state(room_id: int = 0, device: str = "") -> str:
         """장치의 전체 런타임 상태 스냅샷을 조회합니다."""
         device_id = await devices_internal.resolve_device_id(room_id, device, user_id=user_id)
         state = await devices_internal.get_device_state(device_id)
@@ -525,24 +547,60 @@ def _derive_day_of_week(event_date: str) -> DayOfWeek:
     return _WEEKDAY_CODES[parsed.weekday()]
 
 
+_CATEGORY_ALIASES: dict[str, ScheduleCategory] = {
+    "posture": "posture",
+    "sleep": "sleep",
+    "diet": "diet",
+    "mental": "mental",
+    "life": "life",
+    # Common model slips that used to fail pydantic validation mid multi-day create.
+    "exercise": "posture",
+    "workout": "posture",
+    "fitness": "posture",
+    "general": "life",
+    "other": "life",
+    "etc": "life",
+    "daily": "life",
+}
+
+
+def _normalize_schedule_category(value: Any) -> ScheduleCategory:
+    if not isinstance(value, str):
+        raise ValueError("category는 문자열이어야 합니다.")
+    key = value.strip().lower()
+    mapped = _CATEGORY_ALIASES.get(key)
+    if mapped is None:
+        raise ValueError(
+            "category는 posture|sleep|diet|mental|life 중 하나여야 합니다 "
+            f"(받은 값: {value!r}). 운동은 posture, 기타는 life를 쓰세요."
+        )
+    return mapped
+
+
 class _CreateScheduleTaskArgs(BaseModel):
     title: str = Field(..., description="일정 제목")
     category: ScheduleCategory = Field(
         ...,
         description="'posture'|'sleep'|'diet'|'mental'|'life' 중 하나. 프런트가 이 5개만 라벨로 표시한다. "
-        "병원 예약·행정 용무처럼 나머지 4개에 안 맞으면 'life'를 쓰세요.",
+        "운동·스트레칭은 posture, 병원·행정·기타는 life.",
     )
     schedule_kind: Literal["weekly", "once"] = Field("weekly", description="weekly=매주 반복, once=1회성")
     day_of_week: Optional[DayOfWeek] = Field(
         None,
         description="'mon'..'sun'. schedule_kind='weekly'일 때만 채우세요. "
-        "'once'일 때는 event_date로부터 서버가 계산하므로 생략하세요.",
+        "'once'일 때는 event_date로부터 서버가 계산하므로 생략하세요. "
+        "'매일/모든 요일'이면 weekly로 mon~sun 각각 한 번씩 호출하세요(once 7개가 아님).",
     )
     event_date: Optional[str] = Field(
         None, description="schedule_kind='once'일 때 필수, 'YYYY-MM-DD'. weekly에는 넣지 마세요."
     )
     start_minute: Optional[int] = Field(None, description="자정 기준 시작 분(0~1440)")
     end_minute: Optional[int] = Field(None, description="자정 기준 종료 분(0~1440)")
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _coerce_category(cls, value: Any) -> ScheduleCategory:
+        return _normalize_schedule_category(value)
 
 
 def make_create_schedule_task_tool(user_id: int) -> BaseTool:
@@ -557,7 +615,10 @@ def make_create_schedule_task_tool(user_id: int) -> BaseTool:
         end_minute: Optional[int] = None,
     ) -> str:
         """새로운 반복 일정 또는 1회성 일정을 추가합니다(createdBy=agent 로 저장됨).
-        once는 day_of_week를 event_date로부터 자동 계산하므로 보내지 않아도 됩니다."""
+        once는 day_of_week를 event_date로부터 자동 계산하므로 보내지 않아도 됩니다.
+        '매일/모든 요일' 요청은 schedule_kind=weekly로 day_of_week=mon..sun 을 각각 한 번씩
+        호출하세요. once+날짜 7개는 쓰지 마세요."""
+        category = _normalize_schedule_category(category)
         if schedule_kind == "once":
             if not event_date:
                 raise ValueError("schedule_kind='once'에는 event_date('YYYY-MM-DD')가 필요합니다.")

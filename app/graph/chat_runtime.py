@@ -3,6 +3,7 @@ from typing import Any, AsyncIterator, Callable, Awaitable
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
+from app.clients.demo_context import reset_demo_runtime_id, set_demo_runtime_id
 from app.graph.turn_graph import BACKGROUND_TAG, build_chat_graph, scrub_disclaimer
 from app.schemas.chat import ChatTurnRequest, ChatTurnResponse, ToolCallRecord
 from app.services.llm import default_model_name
@@ -33,13 +34,45 @@ def _extract_text(content: Any) -> str:
     return ""
 
 
+def _tool_run_id(event: dict[str, Any]) -> str:
+    run_id = event.get("run_id")
+    return str(run_id) if run_id else ""
+
+
+def _tool_output_ok(output: Any) -> bool:
+    """LangGraph ToolNode turns raised tool errors into ToolMessage(status=error)
+    and still emits on_tool_end — treat that as ok=false."""
+    if isinstance(output, ToolMessage):
+        return (output.status or "success") != "error"
+    if isinstance(output, list):
+        for item in output:
+            if isinstance(item, ToolMessage) and (item.status or "success") == "error":
+                return False
+    return True
+
+
 def _to_initial_state(body: ChatTurnRequest) -> ChatTurnState:
-    messages = [_ROLE_TO_MESSAGE[m.role](content=m.content) for m in body.messages]
+    personal_parts: list[str] = []
+    messages = []
+    for message in body.messages:
+        content = (message.content or "").strip()
+        if not content:
+            continue
+        if message.role == "system":
+            # Replace semantics: wave-server sends the current personal prompt as a
+            # single system message. If several arrive, keep only the last so an
+            # updated settings prompt never stacks on top of an older one.
+            personal_parts.append(content)
+            continue
+        messages.append(_ROLE_TO_MESSAGE[message.role](content=content))
+
     return ChatTurnState(
         messages=messages,
         user_id=body.userId,
         chat_history_id=body.chatHistoryId,
         now=body.context.now,
+        demo_runtime_id=body.context.demoRuntimeId,
+        personal_prompt=personal_parts[-1] if personal_parts else None,
         retrieved=[r.model_dump() for r in body.context.retrieved],
         model=body.model,
         rounds=0,
@@ -76,6 +109,7 @@ def _summarize_tool_result(name: str, raw: str) -> Any:
 async def stream_turn(body: ChatTurnRequest, disconnect: Callable[[], Awaitable[bool]]) -> AsyncIterator[bytes]:
     graph = build_chat_graph(body.userId)
     state = _to_initial_state(body)
+    demo_token = set_demo_runtime_id(body.context.demoRuntimeId)
     current_answer = ""
 
     try:
@@ -99,20 +133,39 @@ async def stream_turn(body: ChatTurnRequest, disconnect: Callable[[], Awaitable[
                     current_answer += text
                     yield _sse({"type": "message.delta", "content": text})
             elif kind == "on_tool_start":
-                yield _sse({"type": "tool.start", "name": event["name"], "args": event["data"].get("input")})
+                payload = {
+                    "type": "tool.start",
+                    "name": event["name"],
+                    "args": event["data"].get("input"),
+                }
+                run_id = _tool_run_id(event)
+                if run_id:
+                    payload["id"] = run_id
+                yield _sse(payload)
             elif kind == "on_tool_end":
                 output = event["data"].get("output")
-                yield _sse(
-                    {
-                        "type": "tool.end",
-                        "name": event["name"],
-                        "ok": True,
-                        "result": _summarize_tool_result(event["name"], str(output)),
-                    }
-                )
+                payload = {
+                    "type": "tool.end",
+                    "name": event["name"],
+                    "ok": _tool_output_ok(output),
+                    "result": _summarize_tool_result(event["name"], str(output)),
+                }
+                run_id = _tool_run_id(event)
+                if run_id:
+                    payload["id"] = run_id
+                yield _sse(payload)
             elif kind == "on_tool_error":
                 error = event["data"].get("error")
-                yield _sse({"type": "tool.end", "name": event["name"], "ok": False, "result": str(error)})
+                payload = {
+                    "type": "tool.end",
+                    "name": event["name"],
+                    "ok": False,
+                    "result": str(error),
+                }
+                run_id = _tool_run_id(event)
+                if run_id:
+                    payload["id"] = run_id
+                yield _sse(payload)
 
         final_answer = scrub_disclaimer(current_answer) if current_answer else current_answer
         yield _sse(
@@ -125,13 +178,19 @@ async def stream_turn(body: ChatTurnRequest, disconnect: Callable[[], Awaitable[
         yield b"data: [DONE]\n\n"
     except Exception as exc:  # noqa: BLE001 - narrow on purpose: GeneratorExit must propagate for cancellation
         yield _sse({"type": "error", "error": _to_error_payload(exc)})
+    finally:
+        reset_demo_runtime_id(demo_token)
 
 
 async def run_turn_sync(body: ChatTurnRequest) -> ChatTurnResponse:
     graph = build_chat_graph(body.userId)
     state = _to_initial_state(body)
+    demo_token = set_demo_runtime_id(body.context.demoRuntimeId)
 
-    result = await graph.ainvoke(state)
+    try:
+        result = await graph.ainvoke(state)
+    finally:
+        reset_demo_runtime_id(demo_token)
     messages = result["messages"]
 
     tool_calls: list[ToolCallRecord] = []

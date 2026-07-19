@@ -3,6 +3,7 @@ from typing import Any, Optional
 
 import httpx
 
+from app.clients.demo_context import get_demo_runtime_id
 from app.config import Settings, get_settings
 
 
@@ -81,6 +82,15 @@ class CoreApiClient:
         return await self._request("PATCH", path, json=json, params=params)
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
+        demo_runtime_id = get_demo_runtime_id()
+        if demo_runtime_id:
+            headers = dict(kwargs.get("headers") or {})
+            headers["X-Wave-Demo-Runtime-Id"] = demo_runtime_id
+            kwargs["headers"] = headers
+            if method in {"POST", "PUT", "PATCH"}:
+                payload = dict(kwargs.get("json") or {})
+                payload.setdefault("demoRuntimeId", demo_runtime_id)
+                kwargs["json"] = payload
         # schedule-tasks-api.md/alarms-api.md 의 GET 은 봉투 없이 배열을 바로 반환하므로
         # 반환 타입을 dict 로 좁히지 않는다(device-tool-api.md 의 {items,count} 봉투와 공존).
         last_error: Optional[Exception] = None

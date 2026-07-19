@@ -333,6 +333,8 @@ MOCK_DEVICES: list[dict[str, Any]] = [
      "class": "philips_wiz_e29_white", "archived": 0, "roomId": 1},
     {"id": 13, "name": "부엌 조명", "description": "WiZ 화이트 조명",
      "class": "philips_wiz_e29_white", "archived": 0, "roomId": 3},
+    {"id": 14, "name": "플러그5 - 전자레인지", "description": "부엌 전자레인지 플러그",
+     "class": "tuya_ep2h", "archived": 0, "roomId": 3},
 ]
 
 MOCK_DEVICE_ROOM_MAP: list[dict[str, Any]] = [
@@ -342,7 +344,7 @@ MOCK_DEVICE_ROOM_MAP: list[dict[str, Any]] = [
 MOCK_ROOMS: list[dict[str, Any]] = [
     {"id": 1, "name": "거실", "description": "공용 거실. 카메라/에어컨/선풍기/조명, 두 사람 모두 사용."},
     {"id": 2, "name": "침실", "description": "김건강 침실. 레이더 2대(하방/책상)/Wave Station/조명/TV/PC 플러그. 박헬스는 사용하지 않음."},
-    {"id": 3, "name": "부엌", "description": "공용 부엌. 인덕션 플러그/조명, 두 사람 모두 사용."},
+    {"id": 3, "name": "부엌", "description": "공용 부엌. 인덕션·전자레인지 플러그/조명, 두 사람 모두 사용."},
 ]
 
 # user 1 = 김건강(거실·침실·부엌 전부), user 2 = 박헬스(거실·부엌만, 침실은 안 씀) — mock.db 그대로.
@@ -369,6 +371,7 @@ MOCK_DEVICE_USER_MAP: list[dict[str, Any]] = [
     {"deviceId": 11, "userId": 1},
     {"deviceId": 12, "userId": 1}, {"deviceId": 12, "userId": 2},
     {"deviceId": 13, "userId": 1}, {"deviceId": 13, "userId": 2},
+    {"deviceId": 14, "userId": 1}, {"deviceId": 14, "userId": 2},
 ]
 
 

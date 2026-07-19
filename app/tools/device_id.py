@@ -1,9 +1,8 @@
 """int <-> 16자리 소문자 hex 장치 id 변환.
 
-DB device.id 는 INTEGER PK. device-tool-api.md/alarms-api.md 의 wire 계약은 16자리
-hex 문자열을 쓰지만 DB에 별도 external_id 컬럼은 없다(agent-be/db-schema.md:749 —
-"API 응답의 deviceId·radarDeviceId 는 백엔드가 device 테이블의 16자리 hex 외부 id로
-변환한다", 즉 백엔드가 정수 id로부터 즉석에서 zero-pad hex를 계산해 내려준다).
+DB device.id 는 INTEGER PK(1~13, JSON 배열 순서). API wire 계약은 manifest 16자리
+hex(`device_list.json` id)이며, DB에는 별도 external_id 컬럼이 없다. 백엔드·에이전트는
+manifest·이름·PK로 wire id ↔ 정수 id를 변환한다.
 
 에이전트 내부(툴 시그니처, 도메인 로직)는 항상 int 를 쓰고, 변환은
 app/tools/*_internal.py 의 httpx 호출 경계에서만 한다.

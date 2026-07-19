@@ -7,14 +7,17 @@ httpx 호출 경계에서만). trigger/action 내부까지 재귀적으로 변�
 
 from typing import Any, Literal, Optional, Union
 from uuid import uuid4
+import logging
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from app.clients.core import CoreApiClient, ToolError
 from app.config import get_settings
 from app.tools.device_id import device_id_to_hex, hex_to_device_id
 from app.tools.errors import InternalApiError
 from app.tools.devices_internal import fetch_device_id_maps
+
+logger = logging.getLogger(__name__)
 
 
 # ── 타입 (device-tool-api.md §타입) ─────────────────────────────────────────
@@ -195,6 +198,14 @@ def _rule_from_wire(item: dict[str, Any], external_to_id: dict[str, int]) -> Rul
     return RuleView.model_validate(item)
 
 
+def _try_rule_from_wire(item: dict[str, Any], external_to_id: dict[str, int]) -> Optional[RuleView]:
+    try:
+        return _rule_from_wire(item, external_to_id)
+    except (ValidationError, KeyError, TypeError, ValueError) as exc:
+        logger.warning("skipping invalid rule from core: id=%s error=%s", item.get("id"), exc)
+        return None
+
+
 # ── mock 상태 (WAVEHOME_CORE_API_MOCK=true) ─────────────────────────────────
 # job_store 와 마찬가지로 프로세스 재시작 시 소실되는 인메모리 CRUD — 생성한 룰이 이후
 # GET/DELETE 에 보여야 자연스러운 데모가 되므로 상태를 갖는 목업이 필요하다.
@@ -304,7 +315,11 @@ async def list_rules(
         response = await client.get("/rules", params)
     except ToolError as exc:
         _raise_from_tool_error(exc)
-    return [_rule_from_wire(item, external_to_id) for item in response.get("items", [])]
+    return [
+        rule
+        for item in response.get("items", [])
+        if (rule := _try_rule_from_wire(item, external_to_id)) is not None
+    ]
 
 
 async def get_rule(rule_id: str) -> RuleView:

@@ -10,6 +10,10 @@ class ChatTurnState(TypedDict, total=False):
     user_id: int
     chat_history_id: int
     now: Optional[str]
+    demo_runtime_id: Optional[str]
+    # wave-server injects personal prompt as role=system; folded into domain
+    # system prompts instead of remaining as a visible chat SystemMessage.
+    personal_prompt: Optional[str]
     retrieved: list[dict[str, Any]]
     model: Optional[str]
     rounds: int

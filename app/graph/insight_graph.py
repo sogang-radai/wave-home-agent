@@ -435,7 +435,18 @@ def _validate_automation_rules(
         if item.get("actionType") != "automation_rule" or not item.get("ruleJson"):
             continue
         rule = item["ruleJson"]
+        if not isinstance(rule, dict):
+            item["actionable"] = False
+            item["actionType"] = None
+            item["ruleJson"] = None
+            continue
         action = rule.get("action") or {}
+        # LLM 이 action 을 객체 대신 문자열로 내는 경우가 있다 — .get 크래시 대신 강등.
+        if not isinstance(action, dict):
+            item["actionable"] = False
+            item["actionType"] = None
+            item["ruleJson"] = None
+            continue
         device_id = action.get("deviceId")
         action_name = action.get("name")
         has_trigger = bool(rule.get("trigger"))
@@ -534,15 +545,24 @@ def _build_actionable_item(
 def _top_up_items(
     state: InsightGenerationState, items: list[dict[str, Any]], devices: list[dict[str, Any]]
 ) -> None:
-    """items 에 surface 의 fallback actionable 리스트를 그대로 붙인다(스펙 자체가 이미
-    schedule_task/automation_rule 최소 1개씩 + MIN_TOTAL_ITEMS 를 넘도록 채워져 있다).
-    automation_rule spec 은 실행 시점에 실제 장치에서 고른 id 가 있을 때만 추가한다 -
-    적합한 장치가 하나도 없으면 그 항목은 건너뛴다(존재하지 않는 id 를 내보내지 않기
-    위해 개수 계약보다 정확성을 우선한다)."""
+    """요구사항이 충족될 때까지만 fallback spec 을 추가한다.
+
+    예전에는 fallback 리스트 전체를 append 해서 LLM 이 이미 만든 항목 위에 4장이 더
+    붙어 하루 8장까지 불어났다. 이제는 schedule_task / automation_rule 누락분과
+    MIN_TOTAL_ITEMS 부족분만 채운다.
+    """
     surface = state["surface"]
     device_id = _pick_device_id(devices, surface)
     for spec in _FALLBACK_ACTIONS[surface]:
+        if _meets_requirements(items):
+            return
         if spec["actionType"] == "automation_rule" and device_id is None:
+            continue
+
+        actionable_types = {item.get("actionType") for item in items if item.get("actionable")}
+        needs_type = spec["actionType"] not in actionable_types
+        needs_count = len(items) < MIN_TOTAL_ITEMS
+        if not needs_type and not needs_count:
             continue
         items.append(_build_actionable_item(state, spec, device_id))
 

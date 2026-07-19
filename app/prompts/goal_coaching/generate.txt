@@ -21,16 +21,25 @@ $extra_context
 다음 필드를 채우세요:
 - pastSummary: 최근 30일 실제 행동을 요약하는 한국어 1~3문장. 위 [통계]의 completionRate,
   streakDays, trend 값만 근거로 쓰세요. 통계에 없는 수치를 만들어내지 마세요.
+  문장 안에 반드시 목표 제목("$goal_title")을 인용해, 어떤 목표에 대한 코칭인지 분명히 하세요.
 - projection: "이대로면 다음 달은…" 같은 톤으로 앞으로의 전망을 한국어 1~2문장으로 쓰세요.
   통계의 trend(improving/steady/declining)를 그대로 반영하세요.
-- 만약 [통계]의 insufficientData 가 true 이면, 억지로 완료율이나 전망을 만들어내지 말고
-  "아직 데이터가 부족해서 정확한 분석이 어렵다"는 취지로 pastSummary/projection 을 정직하게
-  작성하세요.
+- 만약 [통계]의 insufficientData 가 true 이면:
+  - 억지로 완료율·연속일·전망 수치를 만들어내지 마세요.
+  - pastSummary 는 "「$goal_title」을 방금 설정했고, 아직 실천 기록이 없어 지난 성과 분석은
+    어렵다"는 취지로 쓰되, 목표 내용(제목·category)에 맞춰 앞으로 무엇을 보면 좋을지
+    한 문장으로 방향을 잡아 주세요. 카테고리만 보고 아무 목표에나 통하는 상투어만 쓰지 마세요.
+  - projection 은 "기록이 쌓이면 「$goal_title」 달성 여부를 숫자로 보여 주겠다"는 식으로
+    앞으로의 코칭 약속을 쓰세요(다음 달 완료율 예측 금지).
+  - items 는 비우지 마세요. 「$goal_title」을 시작하기 위한 구체적 첫걸음 2~3개를 만드세요.
+    가능하면 actionable=true + actionType="schedule_task" 로 주간 일정 1개 이상을 포함하세요.
+    일정 제목/설명에 목표 제목의 핵심 키워드를 반영하세요(예: 목표가 "11시 전 취침"이면
+    "11시 취침 준비"처럼). 범용 "수면 케어" 템플릿만 반복하지 마세요.
 - projectedMetrics: [통계]에 있는 completionRate/trend/streakDays 값을 그대로 옮겨 담으세요
   (이 필드는 이후 서버가 통계값으로 다시 덮어쓰지만, 형식은 갖춰야 합니다).
-- items: 목표 달성에 실제로 도움이 되는 GoalRecommendationItem 을 1~3개 생성하세요. 반드시
-  위 [schedule_task 목록]이나 [등록된 장치 목록]에 근거해 구체적으로 제안하세요(조회되지
-  않은 일정/장치를 지어내지 마세요).
+- items (insufficientData 가 false 일 때): 목표 달성에 실제로 도움이 되는
+  GoalRecommendationItem 을 1~3개 생성하세요. 반드시 위 [schedule_task 목록]이나
+  [등록된 장치 목록]에 근거해 구체적으로 제안하세요(조회되지 않은 일정/장치를 지어내지 마세요).
   - kind: action(실행 제안) | tip(팁)
   - actionable=true 인 경우에만 actionType 을 schedule_task|automation_rule 중 하나로 채우고,
     actionType="schedule_task" 면 scheduleTaskJson 을, actionType="automation_rule" 이면

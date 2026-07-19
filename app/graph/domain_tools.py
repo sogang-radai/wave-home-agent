@@ -101,4 +101,10 @@ def build_domain_tools(domain: Domain, user_id: int) -> list[BaseTool]:
         tools.append(make_list_events_tool(user_id))
         tools.append(make_execute_rule_tool(user_id))
         tools.append(make_set_rule_enabled_tool(user_id))
+    elif domain == "power":
+        # 실시간 순간 전력은 DB(power_energy)가 아니라 장치 query(power)로 읽는다.
+        tools.append(make_list_devices_tool(user_id))
+        tools.append(make_get_device_classes_tool(user_id))
+        tools.append(make_get_device_capabilities_tool(user_id))
+        tools.append(make_query_device_tool(user_id))
     return tools

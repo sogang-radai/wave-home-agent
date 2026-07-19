@@ -210,15 +210,40 @@ def _fallback_content(state: GoalCoachingState) -> GoalCoachingContent:
     goal_title = state["goal_title"]
 
     if stats.get("insufficientData"):
+        category = state.get("category", "life")
+        starter_title = f"「{goal_title}」 첫 실천 알림"
         return GoalCoachingContent(
             pastSummary=(
-                f"'{goal_title}' 목표와 관련된 최근 30일간의 활동 기록이 아직 부족해요"
-                f"(활동 기록이 있는 날: {stats.get('activeDays', 0)}일). 조금 더 데이터가 쌓이면"
-                " 더 정확한 분석을 드릴 수 있어요."
+                f"「{goal_title}」 목표를 새로 설정했어요. 아직 관련 실천 기록이 없어"
+                f"(활동일 {stats.get('activeDays', 0)}일) 지난 성과를 숫자로 말하기는 어려워요."
+                " 아래 첫걸음부터 기록해 보면 다음 코칭이 훨씬 구체적해져요."
             ),
-            projection="아직 데이터가 부족해서 다음 달 전망을 말씀드리기는 어려워요. 며칠만 더 기록을 쌓아주세요.",
+            projection=(
+                f"「{goal_title}」을 주간 일정으로 등록해 실천을 쌓아 보세요."
+                " 기록이 모이면 완료율과 다음 달 전망을 알려드릴게요."
+            ),
             projectedMetrics=dict(stats),
-            items=[],
+            items=[
+                GoalRecommendationItem(
+                    kind="action",
+                    title=starter_title,
+                    text=f"「{goal_title}」을 기억하기 쉬운 요일·시간에 한 번 넣어 두세요.",
+                    actionable=True,
+                    actionType="schedule_task",
+                    scheduleTaskJson={
+                        "title": starter_title,
+                        "dayOfWeek": "mon",
+                        "scheduleKind": "weekly",
+                        "category": category,
+                    },
+                ),
+                GoalRecommendationItem(
+                    kind="tip",
+                    title="작게 시작하기",
+                    text=f"처음 일주일은 「{goal_title}」을 완벽히 지키기보다, 실천 여부만 체크해도 충분해요.",
+                    actionable=False,
+                ),
+            ],
         )
 
     rate = stats.get("completionRate")
@@ -281,14 +306,17 @@ async def generate(state: GoalCoachingState) -> dict[str, Any]:
     # 항상 덮어쓴다 - 프롬프트에 "그대로 옮겨 담으라"고 지시해도 경량 모델은 반올림하거나
     # 다른 키를 섞어 넣을 수 있어(insight_graph.py 와 동일한 "LLM 계산을 믿지 않는다" 철학),
     # 최종적으로 내보내는 수치의 정확성은 코드가 보장한다.
+    metrics = {
+        "completionRate": stats.get("completionRate"),
+        "trend": stats.get("trend"),
+        "streakDays": stats.get("streakDays"),
+        "insufficientData": bool(stats.get("insufficientData")),
+        "activeDays": stats.get("activeDays", 0),
+    }
     content = content.model_copy(
         update={
             "items": [GoalRecommendationItem(**item) for item in items],
-            "projectedMetrics": {
-                "completionRate": stats.get("completionRate"),
-                "trend": stats.get("trend"),
-                "streakDays": stats.get("streakDays"),
-            },
+            "projectedMetrics": metrics,
         }
     )
     return {"content": content}
