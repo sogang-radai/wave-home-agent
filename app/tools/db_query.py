@@ -91,6 +91,97 @@ def _sleep_report_mock(user_id: int) -> list[dict[str, Any]]:
     ]
 
 
+def _daily_user_model_mock(user_id: int) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": 501,
+            "userId": user_id,
+            "modelDate": "2026-07-25",
+            "windowDays": 14,
+            "avgBedtimeMinute": 1430,  # 23:50
+            "avgWakeMinute": 400,      # 06:40
+            "sleepDurationAvgMinutes": 405.0,
+            "preferredLightBrightness": 42.0,
+            "sampleDays": 12,
+            "computedAt": "2026-07-26 00:05:00",
+        }
+    ]
+
+
+MOCK_USER_HABITS: list[dict[str, Any]] = [
+    {
+        "id": 1,
+        "userId": 1,
+        "habitType": "sleep",
+        "title": "취침 전 침실 조명을 끈다",
+        "description": "최근 14일 중 12일, 취침 시각 무렵 침실 조명을 끄는 행동이 반복 관찰되었습니다.",
+        "confidence": 0.86,
+        "windowDays": 14,
+        "status": "active",
+        "lastVerifiedAt": "2026-07-26 00:05:00",
+        "lastUsedAt": None,
+    },
+]
+
+
+def _user_habit_mock(_user_id: int | None, filter_: dict[str, Any]) -> list[dict[str, Any]]:
+    items = MOCK_USER_HABITS
+    if "userId" in filter_:
+        items = [h for h in items if h["userId"] == filter_["userId"]]
+    if "status" in filter_:
+        items = [h for h in items if h["status"] == filter_["status"]]
+    if "habitType" in filter_:
+        items = [h for h in items if h["habitType"] == filter_["habitType"]]
+    if "id" in filter_:
+        items = [h for h in items if h["id"] == filter_["id"]]
+    return items
+
+
+MOCK_HOME_EVENTS: list[dict[str, Any]] = [
+    {
+        "id": 175,
+        "userId": 1,
+        "type": "gesture",
+        "occurredAt": "2026-06-30 23:54:16",
+        "deviceId": 6,
+        "deviceName": "침실 조명",
+        "message": "제스처(circle_cw)로 침실 조명 brightness_up 실행",
+        "triggeredBy": "gesture",
+        "detailJson": '{"action":"brightness","params":{"value":70}}',
+    },
+    {
+        "id": 174,
+        "userId": 1,
+        "type": "schedule",
+        "occurredAt": "2026-06-30 23:00:03",
+        "deviceId": 6,
+        "deviceName": "침실 조명",
+        "message": "취침 시간 자동 소등 규칙이 실행되어 침실 조명을 껐습니다.",
+        "triggeredBy": "rule:1",
+        "detailJson": '{"action":"off","params":{}}',
+    },
+]
+
+
+def _home_event_mock(_user_id: int | None, filter_: dict[str, Any]) -> list[dict[str, Any]]:
+    items = MOCK_HOME_EVENTS
+    if "userId" in filter_:
+        items = [e for e in items if e["userId"] == filter_["userId"]]
+    if "type" in filter_:
+        items = [e for e in items if e["type"] == filter_["type"]]
+    if "deviceId" in filter_:
+        items = [e for e in items if e["deviceId"] == filter_["deviceId"]]
+    if "id" in filter_:
+        items = [e for e in items if e["id"] == filter_["id"]]
+    date_from = filter_.get("from")
+    date_to = filter_.get("to")
+    if date_from:
+        items = [e for e in items if e["occurredAt"] >= date_from]
+    if date_to:
+        items = [e for e in items if e["occurredAt"] <= date_to]
+    return items
+
+
 # 별개 기능(추후 작업)에서 쓸 user_action_log 용 임시 mock — 다른 테이블처럼 mock.db 실 시딩
 # 데이터가 없어 그럴싸한 가짜 행 몇 개만 둔다. schedule_task_mock 과 동일하게 filter-aware.
 # category 는 goal-coaching 기능(app/graph/goal_coaching_graph.py)이 추가한 NEW 컬럼 —
@@ -515,12 +606,25 @@ TABLE_SPECS: dict[str, _TableSpec] = {
         required_any={"userId"},
         allowed={"id", "userId", "status", "category"},
     ),
+    "daily_user_model": _TableSpec(
+        required_any={"userId"},
+        allowed={"id", "userId", "modelDate", "from", "to"},
+    ),
+    "user_habit": _TableSpec(
+        required_any={"userId"},
+        allowed={"id", "userId", "status", "habitType", "from", "to"},
+    ),
+    "home_event": _TableSpec(
+        required_any={"userId"},
+        allowed={"id", "userId", "type", "deviceId", "from", "to"},
+    ),
 }
 
 _MOCK_GENERATORS = {
     "sleep_session": _sleep_session_mock,
     "sleep_stat": _sleep_stat_mock,
     "sleep_report": _sleep_report_mock,
+    "daily_user_model": _daily_user_model_mock,
 }
 
 # device/device_room_map/device_user_map/room/room_user_map/schedule_task/weekly_plan_report
@@ -535,6 +639,8 @@ _FILTER_AWARE_MOCK_GENERATORS = {
     "weekly_plan_report": _weekly_plan_report_mock,
     "user_action_log": _user_action_log_mock,
     "goal": _goal_mock,
+    "user_habit": _user_habit_mock,
+    "home_event": _home_event_mock,
 }
 
 

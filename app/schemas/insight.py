@@ -39,6 +39,9 @@ class GeneratedInsight(BaseModel):
     ruleJson: Optional[CreateRuleRequest] = None
     scheduleTaskJson: Optional[CreateScheduleTaskRequest] = None
     embedding: Optional[list[float]] = None
+    usedHabitIds: list[int] = Field(default_factory=list)
+    """user_habit.id 값 중 이 인사이트 문장이 실제로 근거로 삼은 것들 (db_query로 user_habit을
+    조회했을 때 나온 id만, 지어내면 안 된다). 백엔드가 해당 habit의 last_used_at을 갱신한다."""
 
     @model_validator(mode="after")
     def _backfill_action_type(self) -> "GeneratedInsight":
