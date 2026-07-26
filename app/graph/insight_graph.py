@@ -447,6 +447,13 @@ def _validate_automation_rules(
             item["actionType"] = None
             item["ruleJson"] = None
             continue
+        # CreateRuleRequest.name 은 필수 필드지만(rules_internal.py) LLM이 종종 통째로
+        # 빠뜨림, 이미 만들어둔 item.title 이 사람이 읽는 이름이므로,
+        # 없는 값을 새로 지어내는 게 아니라 이미 생성된 값을 그대로 옮기는 것뿐이다.
+        # (actionable=false로 강등하는 대신 이렇게 메꾸는 이유: title이 있으면 100%
+        # 복구 가능한 결측이라 항목을 통째로 버릴 이유가 없다.)
+        if not isinstance(rule.get("name"), str) or not rule["name"].strip():
+            rule["name"] = (item.get("title") or "").strip() or "자동화 규칙"
         device_id = action.get("deviceId")
         action_name = action.get("name")
         has_trigger = bool(rule.get("trigger"))
