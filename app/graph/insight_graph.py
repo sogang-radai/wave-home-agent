@@ -80,21 +80,21 @@ actionable=true 항목으로 schedule_task 1개 이상·automation_rule 1개 이
 못했습니다. 이번엔 위 [필수] 요구사항을 반드시 지켜서 다시 생성하세요."""
 
 _EXACT_COUNT_REQUIREMENT_TEXT = f"""
-[필수] 이 화면(surface)은 반드시 kind="action"(actionable=true) 항목 정확히
-{EXACT_ACTION_COUNT}개와 kind="tip" 항목 정확히 {EXACT_TIP_COUNT}개, 총
-{EXACT_ACTION_COUNT + EXACT_TIP_COUNT}개만 생성하세요(더 많거나 적으면 안 됩니다).
-kind="goal" 항목은 이 화면에서 만들지 마세요 - 만들어도 그대로 버려집니다. action
-항목은 actionType 을 schedule_task 또는 automation_rule 로 채우고 실제로 적용 가능한
-scheduleTaskJson/ruleJson 을 채우세요(automation_rule 의 ruleJson.action.deviceId 는
-반드시 [등록된 장치 목록]에 실제로 나온 device.id 값만 쓰세요 - 모르면
-actionType="schedule_task" 로 대체하세요). tip 항목은 actionable=false 로 두고
-actionType/ruleJson/scheduleTaskJson 은 모두 null 로 두세요."""
+[필수] 이 화면(surface)은 반드시 kind="action"(actionable=true) 항목 정확히 2개 -
+actionType="automation_rule" 1개와 actionType="schedule_task" 1개 - 와 kind="tip"
+항목 정확히 {EXACT_TIP_COUNT}개, 총 4개만 생성하세요(더 많거나 적으면 안 되고, action
+두 개가 같은 actionType 이어도 안 됩니다 - 반드시 하나씩 서로 다르게).
+kind="goal" 항목은 이 화면에서 만들지 마세요 - 만들어도 그대로 버려집니다.
+automation_rule 항목은 ruleJson 을, schedule_task 항목은 scheduleTaskJson 을 실제로
+적용 가능한 형태로 채우세요(automation_rule 의 ruleJson.action.deviceId 는 반드시
+[등록된 장치 목록]에 실제로 나온 device.id 값만 쓰세요). tip 항목은 actionable=false 로
+두고 actionType/ruleJson/scheduleTaskJson 은 모두 null 로 두세요."""
 
 _EXACT_COUNT_RETRY_FEEDBACK_TEXT = f"""
 
-[재시도] 이전 시도에서 만든 인사이트가 요구사항(action 정확히 {EXACT_ACTION_COUNT}개,
-tip 정확히 {EXACT_TIP_COUNT}개)을 충족하지 못했습니다. 이번엔 위 [필수] 요구사항을
-반드시 지켜서 다시 생성하세요."""
+[재시도] 이전 시도에서 만든 인사이트가 요구사항(automation_rule 액션 1개, schedule_task
+액션 1개, tip 정확히 {EXACT_TIP_COUNT}개)을 충족하지 못했습니다. 이번엔 위 [필수]
+요구사항을 반드시 지켜서 다시 생성하세요."""
 
 # 각 REQUIRE_ACTIONABLE_SURFACES 는 MIN_TOTAL_ITEMS(4)개 이상의 actionable spec 을 갖고
 # 있고, 그중 schedule_task/automation_rule 이 각각 최소 1개씩 있다 — top-up 이 발동하면 이
@@ -370,8 +370,9 @@ _NARRATIVE_ONLY_ACTIONABLE_GUIDANCE = (
 _DEFAULT_ITEM_COUNT_GUIDANCE = "items 는 보통 1~3개로 제한하되, 아래 [필수] 요구사항이 있으면 그 최소 개수를 우선하세요."
 _NARRATIVE_ONLY_ITEM_COUNT_GUIDANCE = "items 는 정확히 1개만 생성하세요(오늘의 배너 문구 하나)."
 _EXACT_COUNT_ITEM_COUNT_GUIDANCE = (
-    f"items 는 정확히 {EXACT_ACTION_COUNT + EXACT_TIP_COUNT}개만 생성하세요"
-    f"(kind=\"action\" {EXACT_ACTION_COUNT}개 + kind=\"tip\" {EXACT_TIP_COUNT}개, 그 이상도 이하도 안 됩니다)."
+    f"items 는 정확히 {EXACT_ACTION_COUNT + EXACT_TIP_COUNT}개만 생성하세요(kind=\"action\" 중 "
+    f"actionType=\"automation_rule\" 1개 + actionType=\"schedule_task\" 1개 + kind=\"tip\" "
+    f"{EXACT_TIP_COUNT}개, 그 이상도 이하도 안 됩니다)."
 )
 
 
@@ -627,16 +628,24 @@ def _build_tip_item(state: InsightGenerationState, spec: dict[str, str]) -> dict
 
 
 def _finalize_exact_counts(items: list[dict[str, Any]], surface: str) -> list[dict[str, Any]]:
-    """EXACT_COUNT_SURFACES 는 정확히 action {EXACT_ACTION_COUNT}개 + tip {EXACT_TIP_COUNT}개만
-    나가야 한다("정해진 개수만큼씩") - 초과분(goal 항목 포함)은 잘라내고, 각 kind 별로 처음
-    N개만 남긴다. _validate_automation_rules 로 검증을 먼저 끝낸 뒤에 호출해야 한다 - 강등된
-    automation_rule 이 action 슬롯을 무효한 채로 차지하지 않게 하기 위해서다. 다른 surface
-    에는 영향 없음(그대로 반환)."""
+    """EXACT_COUNT_SURFACES 는 정확히 automation_rule 액션 1개 + schedule_task 액션 1개 +
+    tip {EXACT_TIP_COUNT}개만 나가야 한다("정해진 개수만큼씩", actionType 도 하나씩 서로
+    달라야 함) - 초과분(goal 항목, 같은 actionType 이 중복된 항목 포함)은 잘라내고, 각
+    actionType/kind 별로 처음 1(또는 N)개만 남긴다. _validate_automation_rules 로 검증을
+    먼저 끝낸 뒤에 호출해야 한다 - 강등된 automation_rule 이 action 슬롯을 무효한 채로
+    차지하지 않게 하기 위해서다. 다른 surface 에는 영향 없음(그대로 반환)."""
     if surface not in EXACT_COUNT_SURFACES:
         return items
-    actions = [item for item in items if item.get("kind") == "action" and item.get("actionable")]
+    rule_actions = [
+        item for item in items
+        if item.get("kind") == "action" and item.get("actionable") and item.get("actionType") == "automation_rule"
+    ]
+    task_actions = [
+        item for item in items
+        if item.get("kind") == "action" and item.get("actionable") and item.get("actionType") == "schedule_task"
+    ]
     tips = [item for item in items if item.get("kind") == "tip"]
-    return actions[:EXACT_ACTION_COUNT] + tips[:EXACT_TIP_COUNT]
+    return rule_actions[:1] + task_actions[:1] + tips[:EXACT_TIP_COUNT]
 
 
 def _top_up_items(
@@ -671,21 +680,34 @@ def _top_up_items(
 def _top_up_exact_counts(
     state: InsightGenerationState, items: list[dict[str, Any]], devices: list[dict[str, Any]]
 ) -> None:
-    """EXACT_COUNT_SURFACES 전용 top-up — action/tip 각각 부족분만 정확한 개수까지
-    채운다(그 이상은 붙이지 않는다 - 호출 시점엔 이미 _finalize_exact_counts 로 트림된
-    뒤라 정확한 부족분만 남아 있다). actionType 다양성은 신경 쓰지 않는다 - 요구사항은
-    개수뿐이다."""
+    """EXACT_COUNT_SURFACES 전용 top-up — automation_rule 액션/schedule_task 액션/tip 을
+    각각 부족한 만큼만 채운다(호출 시점엔 이미 _finalize_exact_counts 로 트림된 뒤라 정확한
+    부족분만 남아 있다). 개수뿐 아니라 actionType 도 하나씩 서로 달라야 하므로, 이미 있는
+    actionType 은 건너뛰고 없는 쪽만 채운다."""
     surface = state["surface"]
     device_id = _pick_device_id(devices, surface)
 
-    action_count = sum(1 for item in items if item.get("kind") == "action" and item.get("actionable"))
+    has_rule_action = any(
+        item.get("kind") == "action" and item.get("actionable") and item.get("actionType") == "automation_rule"
+        for item in items
+    )
+    has_task_action = any(
+        item.get("kind") == "action" and item.get("actionable") and item.get("actionType") == "schedule_task"
+        for item in items
+    )
     for spec in _FALLBACK_ACTIONS.get(surface, []):
-        if action_count >= EXACT_ACTION_COUNT:
+        if has_rule_action and has_task_action:
             break
-        if spec["actionType"] == "automation_rule" and device_id is None:
-            continue
-        items.append(_build_actionable_item(state, spec, device_id))
-        action_count += 1
+        if spec["actionType"] == "automation_rule":
+            if has_rule_action or device_id is None:
+                continue
+            items.append(_build_actionable_item(state, spec, device_id))
+            has_rule_action = True
+        else:
+            if has_task_action:
+                continue
+            items.append(_build_actionable_item(state, spec, device_id))
+            has_task_action = True
 
     tip_count = sum(1 for item in items if item.get("kind") == "tip")
     for spec in _FALLBACK_TIPS.get(surface, []):
@@ -830,9 +852,11 @@ async def generate(state: InsightGenerationState) -> dict[str, Any]:
 
 def _meets_requirements(items: list[dict[str, Any]], surface: str) -> bool:
     if surface in EXACT_COUNT_SURFACES:
-        actions = [item for item in items if item.get("kind") == "action" and item.get("actionable")]
+        action_types = [
+            item.get("actionType") for item in items if item.get("kind") == "action" and item.get("actionable")
+        ]
         tips = [item for item in items if item.get("kind") == "tip"]
-        return len(actions) == EXACT_ACTION_COUNT and len(tips) == EXACT_TIP_COUNT
+        return sorted(action_types) == ["automation_rule", "schedule_task"] and len(tips) == EXACT_TIP_COUNT
     actionable_types = {item["actionType"] for item in items if item["actionable"]}
     return "schedule_task" in actionable_types and "automation_rule" in actionable_types and len(items) >= MIN_TOTAL_ITEMS
 
