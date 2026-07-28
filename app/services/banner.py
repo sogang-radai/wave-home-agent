@@ -41,7 +41,7 @@ async def _run_generation(job_id: str, body: HabitBannerRequest) -> None:
 
     prompt = load_prompt(
         "banner",
-        body.surface,  # "dashboard" | "weekly_plan" -> prompts/banner/{surface}.txt
+        body.surface,  # "weekly_plan" -> prompts/banner/weekly_plan.txt
         user_id=body.userId,
         date=body.date,
         habits=json.dumps([h.model_dump() for h in body.habits], ensure_ascii=False),

@@ -2,9 +2,9 @@
 
 app/schemas/habit.py 와 같은 이유로 gather 단계가 없다 — 백엔드가 이미 골라낸 활성 습관
 목록(habits)을 인라인으로 넘겨주고, LLM은 그걸 자연스러운 한 배너(headline+body)로
-합치는 문장 작업만 한다. 어떤 습관을 넣을지(sleep/power/lifestyle 전부 vs lifestyle만)는
-호출부(banner_generator.cpp)가 surface 별로 이미 필터링해서 보낸다 — 이 스키마/그래프는
-그 경계를 모르고 그냥 받은 걸 합칠 뿐이다.
+합치는 문장 작업만 한다. 대시보드 배너는 더 이상 habit 기반이 아니므로(POST
+/insight/v1/dashboard-summary, app/schemas/dashboard_summary.py 참고) 이 엔드포인트는
+weekly_plan(루틴 플래너) 서피스 전용이다.
 """
 
 from typing import Literal
@@ -12,7 +12,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-BannerSurface = Literal["dashboard", "weekly_plan"]
+BannerSurface = Literal["weekly_plan"]
 
 
 class BannerHabit(BaseModel):

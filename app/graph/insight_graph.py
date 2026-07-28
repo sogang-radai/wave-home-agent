@@ -33,12 +33,21 @@ MAX_CONTEXT_ROUNDS = 2
 # 사용자가 바로 실행할 수 있는 액션이 없으면 화면이 텍스트만 나열하는 배너로 전락한다 —
 # 이 surface 들은 전체 항목이 최소 MIN_TOTAL_ITEMS개, 그중 actionable 항목으로
 # schedule_task 최소 1개·automation_rule 최소 1개가 각각 있어야 한다("actionable 아무거나
-# 2개"가 아니라 두 actionType 이 골고루 있어야 화면이 다양해진다). posture_report 는
-# 요청에 따라 잠시 제외(다시 필요해지면 이 set 에 넣기만 하면 된다 — _FALLBACK_ACTIONS
+# 2개"가 아니라 두 actionType 이 골고루 있어야 화면이 다양해진다). sleep_report/power 는
+# 아래 EXACT_COUNT_SURFACES 의 "정확히 action 2개 + tip 2개" 계약으로 옮겨갔다. posture_report
+# 는 요청에 따라 잠시 제외(다시 필요해지면 이 set 에 넣기만 하면 된다 — _FALLBACK_ACTIONS
 # 항목은 남겨둠).
-REQUIRE_ACTIONABLE_SURFACES = {"sleep_report", "power", "weekly_plan"}
+REQUIRE_ACTIONABLE_SURFACES = {"weekly_plan"}
 MAX_GENERATE_ATTEMPTS = 3
 MIN_TOTAL_ITEMS = 4
+
+# sleep_report/power 는 "카드가 정확히 4장(action 2 + tip 2)"이어야 하는 화면이다 -
+# REQUIRE_ACTIONABLE_SURFACES 의 "최소 개수" 계약과 달리 초과분(goal 항목 포함)도
+# 잘라내고, kind 별로 정확한 개수를 강제한다. actionType 다양성(schedule_task/
+# automation_rule 각 1개 이상)은 요구하지 않는다 - 사용자가 요청한 건 개수 계약뿐이다.
+EXACT_ACTION_COUNT = 2
+EXACT_TIP_COUNT = 2
+EXACT_COUNT_SURFACES = {"sleep_report", "power"}
 
 # device-tool-api.md 클래스별 레퍼런스 표 기준 Actionable 이 없는 클래스(카메라·레이더) —
 # automation_rule 의 action 대상으로 고르면 안 된다.
@@ -69,6 +78,23 @@ _RETRY_FEEDBACK_TEXT = f"""
 [재시도] 이전 시도에서 만든 인사이트가 요구사항(전체 {MIN_TOTAL_ITEMS}개 이상, 그중
 actionable=true 항목으로 schedule_task 1개 이상·automation_rule 1개 이상)을 충족하지
 못했습니다. 이번엔 위 [필수] 요구사항을 반드시 지켜서 다시 생성하세요."""
+
+_EXACT_COUNT_REQUIREMENT_TEXT = f"""
+[필수] 이 화면(surface)은 반드시 kind="action"(actionable=true) 항목 정확히
+{EXACT_ACTION_COUNT}개와 kind="tip" 항목 정확히 {EXACT_TIP_COUNT}개, 총
+{EXACT_ACTION_COUNT + EXACT_TIP_COUNT}개만 생성하세요(더 많거나 적으면 안 됩니다).
+kind="goal" 항목은 이 화면에서 만들지 마세요 - 만들어도 그대로 버려집니다. action
+항목은 actionType 을 schedule_task 또는 automation_rule 로 채우고 실제로 적용 가능한
+scheduleTaskJson/ruleJson 을 채우세요(automation_rule 의 ruleJson.action.deviceId 는
+반드시 [등록된 장치 목록]에 실제로 나온 device.id 값만 쓰세요 - 모르면
+actionType="schedule_task" 로 대체하세요). tip 항목은 actionable=false 로 두고
+actionType/ruleJson/scheduleTaskJson 은 모두 null 로 두세요."""
+
+_EXACT_COUNT_RETRY_FEEDBACK_TEXT = f"""
+
+[재시도] 이전 시도에서 만든 인사이트가 요구사항(action 정확히 {EXACT_ACTION_COUNT}개,
+tip 정확히 {EXACT_TIP_COUNT}개)을 충족하지 못했습니다. 이번엔 위 [필수] 요구사항을
+반드시 지켜서 다시 생성하세요."""
 
 # 각 REQUIRE_ACTIONABLE_SURFACES 는 MIN_TOTAL_ITEMS(4)개 이상의 actionable spec 을 갖고
 # 있고, 그중 schedule_task/automation_rule 이 각각 최소 1개씩 있다 — top-up 이 발동하면 이
@@ -247,6 +273,32 @@ _FALLBACK_ACTIONS: dict[str, list[dict[str, Any]]] = {
     ],
 }
 
+# EXACT_COUNT_SURFACES 전용 tip fallback — _FALLBACK_ACTIONS 와 달리 actionable 이
+# 아니므로 scheduleTaskJson/ruleJson 조립이 필요 없다. top-up 이 tip 부족분을 채울 때만
+# 쓰인다(정확히 EXACT_TIP_COUNT 개까지만).
+_FALLBACK_TIPS: dict[str, list[dict[str, str]]] = {
+    "sleep_report": [
+        {
+            "title": "취침 전 카페인 피하기",
+            "text": "오후 늦게 마시는 카페인은 입면을 늦출 수 있어요. 저녁 이후엔 되도록 피해보세요.",
+        },
+        {
+            "title": "침실 온도 낮추기",
+            "text": "약간 서늘한 침실 온도가 더 깊은 잠에 도움이 됩니다.",
+        },
+    ],
+    "power": [
+        {
+            "title": "대기전력 확인하기",
+            "text": "사용하지 않는 가전도 플러그에 꽂혀 있으면 대기전력을 소모해요. 가끔 점검해보세요.",
+        },
+        {
+            "title": "피크 시간대 분산 사용",
+            "text": "여러 가전을 동시에 쓰기보다 시간을 나눠 사용하면 순간 사용량을 줄일 수 있어요.",
+        },
+    ],
+}
+
 SURFACE_TABLES: dict[str, set[str]] = {
     "dashboard_banner": {"sleep_report", "power_report", "schedule_task", "alarm", "device"},
     "weekly_plan": {"schedule_task", "sleep_report", "posture_report", "weekly_plan_report", "device"},
@@ -317,6 +369,10 @@ _NARRATIVE_ONLY_ACTIONABLE_GUIDANCE = (
 
 _DEFAULT_ITEM_COUNT_GUIDANCE = "items 는 보통 1~3개로 제한하되, 아래 [필수] 요구사항이 있으면 그 최소 개수를 우선하세요."
 _NARRATIVE_ONLY_ITEM_COUNT_GUIDANCE = "items 는 정확히 1개만 생성하세요(오늘의 배너 문구 하나)."
+_EXACT_COUNT_ITEM_COUNT_GUIDANCE = (
+    f"items 는 정확히 {EXACT_ACTION_COUNT + EXACT_TIP_COUNT}개만 생성하세요"
+    f"(kind=\"action\" {EXACT_ACTION_COUNT}개 + kind=\"tip\" {EXACT_TIP_COUNT}개, 그 이상도 이하도 안 됩니다)."
+)
 
 
 def _length_guidance(surface: str) -> str:
@@ -332,6 +388,8 @@ def _actionable_guidance(surface: str) -> str:
 def _item_count_guidance(surface: str) -> str:
     if surface in _NARRATIVE_ONLY_SURFACES:
         return _NARRATIVE_ONLY_ITEM_COUNT_GUIDANCE
+    if surface in EXACT_COUNT_SURFACES:
+        return _EXACT_COUNT_ITEM_COUNT_GUIDANCE
     return _DEFAULT_ITEM_COUNT_GUIDANCE
 
 
@@ -549,6 +607,38 @@ def _build_actionable_item(
     return base
 
 
+def _build_tip_item(state: InsightGenerationState, spec: dict[str, str]) -> dict[str, Any]:
+    """_FALLBACK_TIPS[surface] 의 spec 하나를 GeneratedInsight 모양의 dict 로 조립한다 -
+    _build_actionable_item 과 달리 actionable=False 라 scheduleTaskJson/ruleJson 조립이
+    필요 없다."""
+    return {
+        "surface": state["surface"],
+        "kind": "tip",
+        "date": state["date"],
+        "label": None,
+        "title": spec["title"],
+        "text": spec["text"],
+        "actionable": False,
+        "actionType": None,
+        "ruleJson": None,
+        "scheduleTaskJson": None,
+        "embedding": None,
+    }
+
+
+def _finalize_exact_counts(items: list[dict[str, Any]], surface: str) -> list[dict[str, Any]]:
+    """EXACT_COUNT_SURFACES 는 정확히 action {EXACT_ACTION_COUNT}개 + tip {EXACT_TIP_COUNT}개만
+    나가야 한다("정해진 개수만큼씩") - 초과분(goal 항목 포함)은 잘라내고, 각 kind 별로 처음
+    N개만 남긴다. _validate_automation_rules 로 검증을 먼저 끝낸 뒤에 호출해야 한다 - 강등된
+    automation_rule 이 action 슬롯을 무효한 채로 차지하지 않게 하기 위해서다. 다른 surface
+    에는 영향 없음(그대로 반환)."""
+    if surface not in EXACT_COUNT_SURFACES:
+        return items
+    actions = [item for item in items if item.get("kind") == "action" and item.get("actionable")]
+    tips = [item for item in items if item.get("kind") == "tip"]
+    return actions[:EXACT_ACTION_COUNT] + tips[:EXACT_TIP_COUNT]
+
+
 def _top_up_items(
     state: InsightGenerationState, items: list[dict[str, Any]], devices: list[dict[str, Any]]
 ) -> None:
@@ -556,12 +646,16 @@ def _top_up_items(
 
     예전에는 fallback 리스트 전체를 append 해서 LLM 이 이미 만든 항목 위에 4장이 더
     붙어 하루 8장까지 불어났다. 이제는 schedule_task / automation_rule 누락분과
-    MIN_TOTAL_ITEMS 부족분만 채운다.
+    MIN_TOTAL_ITEMS 부족분만 채운다(EXACT_COUNT_SURFACES 는 _top_up_exact_counts 로 위임).
     """
     surface = state["surface"]
+    if surface in EXACT_COUNT_SURFACES:
+        _top_up_exact_counts(state, items, devices)
+        return
+
     device_id = _pick_device_id(devices, surface)
     for spec in _FALLBACK_ACTIONS[surface]:
-        if _meets_requirements(items):
+        if _meets_requirements(items, surface):
             return
         if spec["actionType"] == "automation_rule" and device_id is None:
             continue
@@ -572,6 +666,33 @@ def _top_up_items(
         if not needs_type and not needs_count:
             continue
         items.append(_build_actionable_item(state, spec, device_id))
+
+
+def _top_up_exact_counts(
+    state: InsightGenerationState, items: list[dict[str, Any]], devices: list[dict[str, Any]]
+) -> None:
+    """EXACT_COUNT_SURFACES 전용 top-up — action/tip 각각 부족분만 정확한 개수까지
+    채운다(그 이상은 붙이지 않는다 - 호출 시점엔 이미 _finalize_exact_counts 로 트림된
+    뒤라 정확한 부족분만 남아 있다). actionType 다양성은 신경 쓰지 않는다 - 요구사항은
+    개수뿐이다."""
+    surface = state["surface"]
+    device_id = _pick_device_id(devices, surface)
+
+    action_count = sum(1 for item in items if item.get("kind") == "action" and item.get("actionable"))
+    for spec in _FALLBACK_ACTIONS.get(surface, []):
+        if action_count >= EXACT_ACTION_COUNT:
+            break
+        if spec["actionType"] == "automation_rule" and device_id is None:
+            continue
+        items.append(_build_actionable_item(state, spec, device_id))
+        action_count += 1
+
+    tip_count = sum(1 for item in items if item.get("kind") == "tip")
+    for spec in _FALLBACK_TIPS.get(surface, []):
+        if tip_count >= EXACT_TIP_COUNT:
+            break
+        items.append(_build_tip_item(state, spec))
+        tip_count += 1
 
 
 async def _fetch_devices(user_id: int) -> list[dict[str, Any]]:
@@ -640,7 +761,19 @@ async def gather(state: InsightGenerationState) -> dict[str, Any]:
 
 
 def _needs_actionable(state: InsightGenerationState) -> bool:
-    return state["surface"] in REQUIRE_ACTIONABLE_SURFACES
+    return state["surface"] in REQUIRE_ACTIONABLE_SURFACES or state["surface"] in EXACT_COUNT_SURFACES
+
+
+def _actionable_requirement_text(surface: str) -> str:
+    if surface in EXACT_COUNT_SURFACES:
+        return _EXACT_COUNT_REQUIREMENT_TEXT
+    if surface in REQUIRE_ACTIONABLE_SURFACES:
+        return _ACTIONABLE_REQUIREMENT_TEXT
+    return ""
+
+
+def _retry_feedback_text(surface: str) -> str:
+    return _EXACT_COUNT_RETRY_FEEDBACK_TEXT if surface in EXACT_COUNT_SURFACES else _RETRY_FEEDBACK_TEXT
 
 
 async def generate(state: InsightGenerationState) -> dict[str, Any]:
@@ -648,37 +781,44 @@ async def generate(state: InsightGenerationState) -> dict[str, Any]:
     extra_context = _extract_tool_results(state.get("messages", []))
     devices = state.get("devices", [])
     action_names_by_class = state.get("action_names_by_class", {})
+    surface = state["surface"]
     prompt = load_prompt(
         "insight",
         "generate",
         user_id=state["user_id"],
-        surface=state["surface"],
+        surface=surface,
         date=state["date"],
         context=json.dumps(state.get("context") or {}, ensure_ascii=False),
         extra_context=json.dumps(extra_context, ensure_ascii=False),
         devices=json.dumps(_devices_with_actions(devices, action_names_by_class), ensure_ascii=False),
-        retry_feedback=_RETRY_FEEDBACK_TEXT if attempt > 0 else "",
-        actionable_requirement=_ACTIONABLE_REQUIREMENT_TEXT if _needs_actionable(state) else "",
-        length_guidance=_length_guidance(state["surface"]),
-        actionable_guidance=_actionable_guidance(state["surface"]),
-        item_count_guidance=_item_count_guidance(state["surface"]),
+        retry_feedback=_retry_feedback_text(surface) if attempt > 0 else "",
+        actionable_requirement=_actionable_requirement_text(surface),
+        length_guidance=_length_guidance(surface),
+        actionable_guidance=_actionable_guidance(surface),
+        item_count_guidance=_item_count_guidance(surface),
     )
     batch = await invoke_structured(GeneratedInsightBatch, prompt, fallback=GeneratedInsightBatch(items=[]))
     items = [item.model_dump() for item in batch.items]
-    if state["surface"] in _NARRATIVE_ONLY_SURFACES:
+    if surface in _NARRATIVE_ONLY_SURFACES:
         items = _force_narrative_only(items)
     else:
         items = _validate_automation_rules(items, devices, action_names_by_class)
+        # EXACT_COUNT_SURFACES(sleep_report/power)만 여기서 실질적으로 자른다 - 검증
+        # (강등)이 먼저 끝난 뒤에 트림해야, 무효화된 automation_rule 이 action 슬롯을
+        # 차지한 채로 살아남지 않는다. 다른 surface 에는 영향 없음(그대로 반환).
+        items = _finalize_exact_counts(items, surface)
     attempts_done = attempt + 1
 
-    if _needs_actionable(state) and not _meets_requirements(items) and attempts_done >= MAX_GENERATE_ATTEMPTS:
-        # 재시도 예산 소진 — 규칙 기반 fallback 으로 "schedule_task/automation_rule 각 1개
-        # 이상" 계약을 강제한다.
+    if _needs_actionable(state) and not _meets_requirements(items, surface) and attempts_done >= MAX_GENERATE_ATTEMPTS:
+        # 재시도 예산 소진 — 규칙 기반 fallback 으로 계약(REQUIRE_ACTIONABLE_SURFACES 는
+        # "schedule_task/automation_rule 각 1개 이상", EXACT_COUNT_SURFACES 는 "action/tip
+        # 정확히 N개")을 강제한다.
         _top_up_items(state, items, devices)
         # top-up 이 만든 항목도 동일 기준으로 재검증한다(현재 폴백은 항상 "off" 를 쓰는데,
         # 이는 우연이 아니라 _PREFERRED_DEVICE_CLASSES 의 클래스들이 전부 "off" 를 갖고
         # 있어서다 - 앞으로 선호 클래스가 바뀌어도 이 가드가 잡아준다).
         items = _validate_automation_rules(items, devices, action_names_by_class)
+        items = _finalize_exact_counts(items, surface)  # 안전망 재트림(정상 경로에선 no-op)
 
     # 검증·top-up 은 내부 규약(int)으로 끝내고, 응답으로 내보내기 직전 마지막 단계에서만
     # wire 포맷(hex)으로 바꾼다 - _validate_automation_rules 의 valid_ids 비교가 int 매칭에
@@ -688,7 +828,11 @@ async def generate(state: InsightGenerationState) -> dict[str, Any]:
     return {"items": items, "generate_attempts": attempts_done}
 
 
-def _meets_requirements(items: list[dict[str, Any]]) -> bool:
+def _meets_requirements(items: list[dict[str, Any]], surface: str) -> bool:
+    if surface in EXACT_COUNT_SURFACES:
+        actions = [item for item in items if item.get("kind") == "action" and item.get("actionable")]
+        tips = [item for item in items if item.get("kind") == "tip"]
+        return len(actions) == EXACT_ACTION_COUNT and len(tips) == EXACT_TIP_COUNT
     actionable_types = {item["actionType"] for item in items if item["actionable"]}
     return "schedule_task" in actionable_types and "automation_rule" in actionable_types and len(items) >= MIN_TOTAL_ITEMS
 
@@ -696,7 +840,7 @@ def _meets_requirements(items: list[dict[str, Any]]) -> bool:
 def _should_retry_generate(state: InsightGenerationState) -> str:
     if not _needs_actionable(state):
         return END
-    if _meets_requirements(state.get("items", [])):
+    if _meets_requirements(state.get("items", []), state["surface"]):
         return END
     if state.get("generate_attempts", 0) < MAX_GENERATE_ATTEMPTS:
         return "generate"
